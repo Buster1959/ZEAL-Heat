@@ -793,6 +793,21 @@ class ZealPanel extends HTMLElement {
         cssClass: "away",
       };
     }
+    if (runtime?.effective_source === "unoccupied_setback") {
+      return {
+        schedule,
+        effective: `Unoccupied setback · Setpoint ${this._formatScheduleTemperature(runtime.effective_temperature)}`,
+        cssClass: "away",
+      };
+    }
+    if (runtime?.effective_source === "occupancy_comfort_offset") {
+      const offset = Number(runtime?.occupancy?.comfort_offset || 0);
+      return {
+        schedule,
+        effective: `Guest comfort offset ${offset > 0 ? "+" : ""}${offset}${this._scheduleTemperatureUnit()} · Setpoint ${this._formatScheduleTemperature(runtime.effective_temperature)}`,
+        cssClass: "manual",
+      };
+    }
     if (override) {
       return {
         schedule,
@@ -1002,6 +1017,8 @@ class ZealPanel extends HTMLElement {
     const scheduled = this._formatScheduleTemperature(room.scheduled_temperature);
     const effective = this._formatScheduleTemperature(room.effective_temperature);
     const awayActive = room.effective_source === "away";
+    const occupancy = room.occupancy || { enabled: false };
+    const offset = Number(occupancy.comfort_offset || 0);
     const status = awayActive
       ? `Away ${effective}; scheduled ${scheduled}`
       : override
@@ -1009,6 +1026,15 @@ class ZealPanel extends HTMLElement {
       : room.scheduled_temperature === null
         ? "No active scheduled target"
         : `Scheduled ${scheduled}`;
+    const occupancyControls = occupancy.enabled
+      ? `<div class="occupancy-control"><span class="hold-pill">${
+          occupancy.occupied ? "Occupied" : "Unoccupied"
+        }${Math.abs(offset) >= 0.01 ? ` · ${offset > 0 ? "+" : ""}${this._escape(offset)}${this._scheduleTemperatureUnit()}` : ""}</span><div>
+          <button class="text-button compact" data-occupancy-action="set" data-room-id="${this._escape(room.room_id)}" data-occupied="true" ${this._quickSaving ? "disabled" : ""}>Occupied</button>
+          <button class="text-button compact" data-occupancy-action="set" data-room-id="${this._escape(room.room_id)}" data-occupied="false" ${this._quickSaving ? "disabled" : ""}>Unoccupied</button>
+          ${occupancy.source === "calendar" ? `<button class="text-button compact" data-occupancy-action="follow" data-room-id="${this._escape(room.room_id)}" ${this._quickSaving ? "disabled" : ""}>Follow calendar</button>` : ""}
+        </div></div>`
+      : "";
     return `<article class="quick-room ${selected ? "selected" : ""} ${
       override ? "holding" : ""
     }"><label><input type="checkbox" data-quick-action="room" value="${this._escape(
@@ -1029,7 +1055,7 @@ class ZealPanel extends HTMLElement {
             room.room_id
           )}" ${this._quickSaving ? "disabled" : ""}>Cancel hold</button>`
         : `<span>Current target: ${effective}</span>`
-    }</div></article>`;
+    }</div>${occupancyControls}</article>`;
   }
 
   _quickReferenceTarget() {
@@ -1131,6 +1157,30 @@ class ZealPanel extends HTMLElement {
     } catch (error) {
       this._quickSaving = false;
       this._error = this._message(error, "The temporary hold could not be cancelled.");
+    }
+    this._render();
+  }
+
+  async _setRoomOccupancy(roomId, occupied) {
+    this._quickSaving = true;
+    this._error = "";
+    this._notice = "";
+    this._render();
+    try {
+      const state = await this._hass.callWS({
+        type: "zeal/set_room_occupancy",
+        entry_id: this._entryId,
+        room_id: roomId,
+        occupied,
+      });
+      const roomName = this._quickRoom(roomId)?.room_name || "The room";
+      this._acceptQuickChange(state);
+      this._notice = occupied === null
+        ? `${roomName} is following its occupancy calendar.`
+        : `${roomName} is now ${occupied ? "occupied" : "unoccupied"}.`;
+    } catch (error) {
+      this._quickSaving = false;
+      this._error = this._message(error, "Room occupancy could not be changed.");
     }
     this._render();
   }
@@ -2103,6 +2153,7 @@ class ZealPanel extends HTMLElement {
       (item) => item.area_id === room.room_id
     );
     const zealThermostat = this._zealThermostat(room.room_id);
+    const calendars = this._configuration.catalog.calendars || [];
     return `<section class="room-editor">
       <div class="room-editor-title"><div><h4>${this._escape(
         this._areaName(room.room_id)
@@ -2110,6 +2161,16 @@ class ZealPanel extends HTMLElement {
       <label class="active-toggle"><input type="checkbox" data-zone="${zoneIndex}" data-room="${roomIndex}" data-room-field="active" ${
         room.active === false ? "" : "checked"
       } /><span><strong>Room is active</strong><small>Inactive rooms do not request heat.</small></span></label>
+      <div class="occupancy-config">
+        <label class="active-toggle"><input type="checkbox" data-zone="${zoneIndex}" data-room="${roomIndex}" data-room-field="occupancy_enabled" ${
+          room.occupancy_enabled === true ? "checked" : ""
+        } /><span><strong>Use occupancy setback</strong><small>The room stays active, but uses a lower target while unoccupied.</small></span></label>
+        ${room.occupancy_enabled === true ? `<div class="form-grid">
+          <label>Unoccupied target (${this._scheduleTemperatureUnit()})<input type="number" min="${MIN_SCHEDULE_TEMPERATURE}" max="${MAX_SCHEDULE_TEMPERATURE}" step="0.5" data-zone="${zoneIndex}" data-room="${roomIndex}" data-room-field="unoccupied_temperature" value="${this._escape(room.unoccupied_temperature ?? 12)}" /></label>
+          <label>Occupancy source<select data-zone="${zoneIndex}" data-room="${roomIndex}" data-room-field="occupancy_source"><option value="manual" ${room.occupancy_source !== "calendar" ? "selected" : ""}>Manual</option><option value="calendar" ${room.occupancy_source === "calendar" ? "selected" : ""}>Home Assistant Calendar</option></select></label>
+          ${room.occupancy_source === "calendar" ? `<label>Occupancy calendar<select data-zone="${zoneIndex}" data-room="${roomIndex}" data-room-field="occupancy_calendar"><option value="">Choose a calendar</option>${calendars.map((calendar) => `<option value="${this._escape(calendar.entity_id)}" ${calendar.entity_id === room.occupancy_calendar ? "selected" : ""}>${this._escape(this._entityLabel(calendar))}</option>`).join("")}</select><small>Calendar on means occupied. A manual choice in Overrides takes precedence until Follow calendar is selected.</small></label>` : ""}
+        </div>` : ""}
+      </div>
       <div class="canonical-target"><ha-icon icon="mdi:thermostat"></ha-icon><div><strong>ZEAL room thermostat</strong><span>${this._escape(
         zealThermostat
           ? this._entityLabel(zealThermostat)
@@ -2382,6 +2443,14 @@ class ZealPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll('[data-quick-action="clear-hold"]').forEach((button) => {
       button.addEventListener("click", () => this._clearQuickHold(button.dataset.roomId));
     });
+    this.shadowRoot.querySelectorAll("[data-occupancy-action]").forEach((button) => {
+      button.addEventListener("click", () => this._setRoomOccupancy(
+        button.dataset.roomId,
+        button.dataset.occupancyAction === "follow"
+          ? null
+          : button.dataset.occupied === "true"
+      ));
+    });
     this.shadowRoot.querySelectorAll("[data-away-field]").forEach((control) => {
       control.addEventListener("change", () => {
         const field = control.dataset.awayField;
@@ -2419,9 +2488,15 @@ class ZealPanel extends HTMLElement {
         const room = this._draft[Number(control.dataset.zone)].rooms[Number(control.dataset.room)];
         const field = control.dataset.roomField;
         room[field] =
-          field === "active"
+          field === "active" || field === "occupancy_enabled"
             ? control.checked
-            : Array.from(control.selectedOptions).map((option) => option.value);
+            : field === "unoccupied_temperature"
+              ? Number(control.value)
+              : field === "occupancy_source"
+                ? control.value
+                : field === "occupancy_calendar"
+                  ? control.value || null
+                  : Array.from(control.selectedOptions).map((option) => option.value);
         this._markChanged();
       });
     });
@@ -2622,6 +2697,10 @@ class ZealPanel extends HTMLElement {
       sensors: [],
       opening_sensors: [],
       active: true,
+      occupancy_enabled: false,
+      unoccupied_temperature: 12,
+      occupancy_source: "manual",
+      occupancy_calendar: null,
       cooling_capable: false,
     });
     this._markChanged();
@@ -2723,6 +2802,19 @@ class ZealPanel extends HTMLElement {
     );
     if (invalidDelay) {
       this._error = "Every re-enable delay must be a whole number from 0 to 3600 seconds.";
+      this._render();
+      return;
+    }
+    const invalidOccupancy = this._draft
+      .flatMap((zone) => zone.rooms || [])
+      .find((room) => room.occupancy_enabled === true && (
+        !Number.isFinite(Number(room.unoccupied_temperature)) ||
+        Number(room.unoccupied_temperature) < MIN_SCHEDULE_TEMPERATURE ||
+        Number(room.unoccupied_temperature) > MAX_SCHEDULE_TEMPERATURE ||
+        (room.occupancy_source === "calendar" && !room.occupancy_calendar)
+      ));
+    if (invalidOccupancy) {
+      this._error = `Each occupancy room needs a valid setback from ${MIN_SCHEDULE_TEMPERATURE} to ${MAX_SCHEDULE_TEMPERATURE}${this._scheduleTemperatureUnit()} and a calendar when calendar control is selected.`;
       this._render();
       return;
     }
@@ -2959,6 +3051,8 @@ class ZealPanel extends HTMLElement {
       .quick-room > label span, .quick-room > label strong, .quick-room > label small { display:block; }
       .quick-room > label small { margin-top:4px; }
       .quick-room-state { display:flex; justify-content:space-between; align-items:center; gap:8px; padding-left:29px; color:var(--secondary-text-color); font-size:12px; }
+      .occupancy-control { display:flex; justify-content:space-between; align-items:center; gap:8px; padding-left:29px; }
+      .occupancy-control > div { display:flex; flex-wrap:wrap; gap:6px; }
       .hold-pill { color:var(--primary-color); font-weight:700; }
       .quick-controls { max-width:900px; margin-top:18px; }
       .quick-controls h3 { margin-bottom:4px; }
@@ -2991,6 +3085,7 @@ class ZealPanel extends HTMLElement {
       .add-room { width:auto; min-width:230px; }
       .room-editors { display:grid; gap:12px; }
       .room-editor { border:1px solid var(--divider-color); border-radius:10px; padding:15px; }
+      .occupancy-config { margin:12px 0; padding:10px 12px; border:1px solid var(--divider-color); border-radius:9px; background:var(--secondary-background-color); }
       .control-boundary { margin:0 0 14px; padding:13px; border-left:4px solid var(--primary-color); border-radius:6px; background:var(--secondary-background-color); }
       .control-boundary p { margin:4px 0 0; color:var(--secondary-text-color); }
       .control-boundary ul { display:grid; gap:5px; padding:0; margin:10px 0 0; list-style:none; }

@@ -1192,10 +1192,19 @@ class ZealCoordinator(DataUpdateCoordinator[dict[str, ZoneStatus]]):
             )
             return
         self._external_setpoint_generation.pop(room_id, None)
-        await self.async_propagate_room_setpoint(room_id, new_temp)
-        learning = self.hass.data.get(DOMAIN, {}).get(
-            self.entry.entry_id, {}
-        ).get("schedule_learning")
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
+        runtime = entry_data.get("schedule_runtime")
+        handled = bool(
+            runtime is not None
+            and await runtime.async_handle_guest_target(
+                room_id,
+                new_temp,
+                source="guest_physical_trv_adjustment",
+            )
+        )
+        if not handled:
+            await self.async_propagate_room_setpoint(room_id, new_temp)
+        learning = entry_data.get("schedule_learning")
         if learning is not None:
             await learning.async_record_change(
                 room_id=room_id,

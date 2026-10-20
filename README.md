@@ -12,7 +12,7 @@
 </p>
 
 > **ZEAL-Heat V1 release candidate — live regression testing is in progress.** The
-> current candidate is on `main` at manifest version `0.15.2`. It is feature
+> current candidate is on `main` at manifest version `0.16.0`. It is feature
 > complete for V1 but is not yet the production `1.0.0` release. Test with
 > dummy or spare equipment and complete the live acceptance record before
 > unattended use. The earlier rename is breaking for any old config entry:
@@ -25,10 +25,13 @@
 
 ZEAL-Heat provides zone/room equipment setup, canonical synchronized room
 thermostats, safe demand/actuator control, seven-day schedules, Quick Change,
-Away mode, native Home Assistant History shortcuts and opt-in Schedule
+per-room occupancy setback and stay-long guest comfort offsets, Away mode,
+native Home Assistant History shortcuts and opt-in Schedule
 Adaptation Learning. Overview is available to
 every signed-in user; Setup remains administrator-only. Administrators can grant
 standard users Schedule and Learning access and/or Quick Change access.
+The same Overrides permission includes manual controls for occupancy-enabled
+rooms; occupancy configuration itself remains administrator-only in Setup.
 
 The [ZEAL-Heat wiki](../../wiki) owns current user instructions and troubleshooting.
 Code-adjacent architecture, schemas, tests and release evidence remain in this
@@ -59,8 +62,11 @@ guidance.
   below), which you can then change to any value you want.
 - TRVs and temperature sensors are **auto-discovered** per room from whatever's
   already assigned to that Area in Home Assistant, pre-selected, editable.
-- Mark a room **active/inactive** — an unoccupied guest room, for example, can be
-  excluded from heating demand without removing its configuration.
+- Mark a room **active/inactive** to exclude it from heating demand without
+  removing its configuration.
+- Opt a room into **occupancy setback** with its own unoccupied target. Occupancy
+  can be manual or follow one Home Assistant calendar; this is separate from
+  active/inactive, so an unoccupied room still protects itself at the setback.
 - A saved-configuration summary (zones → switch → heat source → re-enable delay
   → rooms → active TRVs/sensors) is shown after every save.
 - Every room with a TRV gets its own **Thermostat** entity — the room's actual
@@ -109,6 +115,9 @@ guidance.
   a Zone/Floor selection, any group of rooms or the whole house for two hours,
   four hours or until the next scheduled change. Weekly schedules are not
   edited.
+- Occupancy-enabled room cards provide **Occupied**, **Unoccupied** and, for a
+  calendar source, **Follow calendar** controls. A guest thermostat/TRV change
+  becomes a comfort offset from the underlying weekly target for that stay.
 - **Overrides → Away mode** can follow a Home Assistant calendar or one exact start/end
   period and applies one safe global target to every active room.
 - Opt-in **Learning** records qualifying manual intent, shows progress toward
@@ -271,6 +280,8 @@ All configuration is done via the UI — no YAML.
    - add Home Assistant Areas as rooms (an Area can belong to one ZEAL-Heat zone);
    - select the physical climate thermostats/TRVs and temperature sensors already
      assigned to each Area, and choose whether the room is active;
+   - optionally enable occupancy setback, choose its unoccupied target and select
+     manual or Home Assistant Calendar occupancy;
    - leave **Show ZEAL-Heat in the Home Assistant sidebar** enabled, or clear it if
      you prefer to open ZEAL-Heat only from the integration's **Configure** action;
    - select **Save setup**. The complete hierarchy is validated against Home
@@ -337,6 +348,27 @@ to its current scheduled target. Applying and cancelling holds is recorded in
 the audit trail. A relative adjustment requires an active scheduled target;
 an exact target can also be used when no period is currently active.
 
+### Per-room occupancy and guest comfort
+
+In **Setup**, enable occupancy setback only for rooms that need it, choose an
+unoccupied target (12°C by default), then choose **Manual** or **Home Assistant
+Calendar**. This is not the active/inactive switch: an unoccupied room remains
+under ZEAL-Heat control and can request heat to maintain its setback.
+
+Use the room's **Occupied** and **Unoccupied** buttons in **Overrides**. A
+calendar-controlled room also offers **Follow calendar**; a manual choice takes
+precedence until that button is selected. Calendar `on` means occupied. If the
+calendar is missing or unavailable, ZEAL-Heat retains the last persisted state
+(defaulting to occupied when there is no history) rather than guessing a new
+transition.
+
+During an occupied stay, a guest change on the ZEAL-Heat room thermostat or any
+physical TRV is stored as an offset from the underlying weekly target. The same
+offset follows later schedule changes, is replaced by a further guest change,
+survives a Home Assistant restart and clears when occupancy ends. ZEAL-Heat's
+write-echo, delayed-device and multi-TRV guards remain in force, and the final
+target is always clamped to 5–30°C.
+
 ### Away mode
 
 Open **ZEAL-Heat → Overrides → Away mode** and choose exactly one activation method:
@@ -368,8 +400,9 @@ manual thermostat change is respected until the next scheduled transition.
 
 Control priority is deliberate: the per-zone **Manual override** remains the
 highest actuator authority and leaves that zone's pump/relay untouched. For
-room targets the order is **Away → Quick Change → manual thermostat change
-until the next transition → weekly schedule**.
+room targets the order is **Away → unoccupied setback → Quick Change → occupied
+stay comfort offset → weekly schedule**. Occupancy is disabled by default, so
+rooms saved before version 0.16.0 retain their earlier behaviour.
 
 ### Configuration and audit downloads
 

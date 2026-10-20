@@ -9,8 +9,8 @@
 - Integration type: hub
 - Distribution target: HACS custom integration
 - Current release-candidate branch: `main`
-- Current manifest version: `0.15.2` (pre-V1, with dormant Thermal Response
-  persistence foundations)
+- Current manifest version: `0.16.0` (pre-V1, with room occupancy setback and
+  stay-long guest comfort offsets)
 
 ## Independence boundary
 

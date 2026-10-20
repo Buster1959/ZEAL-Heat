@@ -502,6 +502,55 @@ async def test_manual_change_on_either_physical_trv_synchronizes_the_room(
     ]
 
 
+async def test_physical_guest_change_is_delegated_once_to_occupancy_runtime(
+    hass, coordinator, monkeypatch
+):
+    """A genuine dial turn reaches stay-offset logic without double writes."""
+    monkeypatch.setattr(coordinator_module, "EXTERNAL_SETPOINT_SETTLE_SECONDS", 0)
+    room = make_room(
+        "guest_room",
+        "Guest Room",
+        ["climate.guest_dial", "climate.guest_peer"],
+        ["sensor.guest_room"],
+    )
+    coordinator.zones = [make_zone("z", "Zone", "switch.pump", [room])]
+    thermostat = FakeThermostat(20.0)
+    coordinator.room_thermostats[room[ROOM_ID]] = thermostat
+    for trv in room[ROOM_TRVS]:
+        hass.states.async_set(trv, "heat", {"temperature": 20.0})
+    service_calls = []
+
+    async def capture_set_temperature(call):
+        service_calls.append(dict(call.data))
+
+    class OccupancyRuntime:
+        def __init__(self):
+            self.calls = []
+
+        async def async_handle_guest_target(
+            self, room_id, temperature, *, source
+        ):
+            self.calls.append((room_id, temperature, source))
+            return True
+
+    runtime = OccupancyRuntime()
+    hass.data.setdefault(DOMAIN, {})[coordinator.entry.entry_id] = {
+        "schedule_runtime": runtime
+    }
+    hass.services.async_register(
+        "climate", "set_temperature", capture_set_temperature
+    )
+
+    await coordinator._async_handle_external_trv_change(
+        room, "climate.guest_dial", 22.0
+    )
+
+    assert runtime.calls == [
+        ("guest_room", 22.0, "guest_physical_trv_adjustment")
+    ]
+    assert service_calls == []
+
+
 async def test_multiple_out_of_order_write_echoes_are_all_ignored(hass, coordinator):
     """Slow radio echoes must not be mistaken for new manual setpoints."""
     room = make_room("r", "Room", ["climate.r_trv"], ["sensor.r"])

@@ -28,6 +28,10 @@ config-entry options.
           "sensors": ["sensor.example_temperature"],
           "opening_sensors": ["binary_sensor.example_window"],
           "active": true,
+          "occupancy_enabled": false,
+          "unoccupied_temperature": 12.0,
+          "occupancy_source": "manual",
+          "occupancy_calendar": null,
           "cooling_capable": false
         }
       ]
@@ -50,6 +54,11 @@ room's Area. If any reports `on`, the room remains active but contributes no
 zone heating demand. This state does not change its canonical or physical
 thermostat target.
 
+Occupancy setback is opt-in and distinct from `active`. An unoccupied room
+remains eligible to request heat at `unoccupied_temperature`. Its source is
+`manual` or one validated Home Assistant `calendar` entity. Existing rooms
+default to `occupancy_enabled: false`.
+
 ## Schedule document
 
 The version-1 scheduler store contains:
@@ -71,9 +80,13 @@ the destination room's ID, zone, Area and physical equipment are preserved.
 ## Runtime state
 
 The Coordinator store contains transient safety state such as each zone's last
-actuator-off time. Temporary Quick Change holds are runtime state: they do not
-edit the saved weekly schedule. Away configuration is durable and is
-reconciled against calendar/date state after restart.
+actuator-off time. A separate version-1 occupancy Store keeps each enabled
+room's last resolved occupancy, calendar manual override, stay start and guest
+comfort offset. This lets restart reconciliation retain a stay without changing
+the schedule revision. Removed or disabled occupancy rooms are pruned.
+Temporary Quick Change holds are runtime state: they do not edit the saved
+weekly schedule. Away configuration is durable and is reconciled against
+calendar/date state after restart.
 
 ## Audit document
 

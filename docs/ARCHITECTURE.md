@@ -21,13 +21,14 @@ other.
    panel read or write.
 3. **Durable models** — zone/room configuration is held in config-entry
    options; coordinator safety state, schedules/Away settings, application audit
-   and Schedule Learning evidence use four separate versioned Home Assistant
+   occupancy stay state and Schedule Learning evidence use five separate
+   versioned Home Assistant
    Stores. The dormant Thermal Response foundation adds a small model index, a
    separate active-checkpoint Store and lazy per-room history Stores; it does
    not collect observations until that later module is explicitly enabled.
-4. **Scheduler runtime** — `scheduler/runtime.py` resolves Away, Quick Change,
-   manual thermostat changes and weekly schedules, then writes only to the
-   canonical ZEAL-Heat room thermostat.
+4. **Scheduler runtime** — `scheduler/runtime.py` resolves Away, per-room
+   occupancy setback, Quick Change, stay-long guest offsets and weekly
+   schedules, then writes only to the canonical ZEAL-Heat room thermostat.
 5. **Learning** — `scheduler/learning.py` captures qualified intent above the
    runtime boundary and creates reviewable proposals without writing schedules.
 6. **Heating control** — `coordinator.py` propagates that room target to the
@@ -38,8 +39,8 @@ other.
    On/Off entity with its current reason, setpoint, temperature and open-contact
    context; zone-level actuator holds remain separate.
 
-Each config entry owns independently keyed Coordinator, schedule, audit,
-Schedule Learning and Thermal Response Stores. Multiple entries can therefore
+Each config entry owns independently keyed Coordinator, schedule, occupancy,
+audit, Schedule Learning and Thermal Response Stores. Multiple entries can therefore
 run separate heating systems. Removing one entry deletes only its own Stores;
 the panel remains registered while another ZEAL-Heat entry is loaded.
 
@@ -63,9 +64,14 @@ entity cannot make a ZEAL-Heat thermostat selectable as its own physical TRV.
 Room target precedence is:
 
 1. active Away mode;
-2. active Quick Change hold;
-3. a manual ZEAL-Heat room-thermostat change until the next transition;
-4. the weekly schedule.
+2. an enabled room's unoccupied setback;
+3. active Quick Change hold;
+4. an occupied stay's guest comfort offset;
+5. the weekly schedule.
+
+Occupancy is disabled by default. A guest adjustment is calculated from the
+underlying weekly target, not a previously offset target, and is carried across
+schedule boundaries until occupancy ends.
 
 The per-zone Manual override is separate and remains the highest authority over
 the physical actuator. Every target passes through ZEAL-Heat's 5–30°C clamp before

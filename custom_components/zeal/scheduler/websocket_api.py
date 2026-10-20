@@ -51,6 +51,7 @@ def async_register_commands(hass: HomeAssistant) -> None:
         ws_get_quick_change,
         ws_set_temporary_override,
         ws_clear_temporary_override,
+        ws_set_room_occupancy,
         ws_export_configuration,
         ws_get_audit_log,
         ws_get_learning,
@@ -531,6 +532,32 @@ async def ws_clear_temporary_override(hass, connection, msg) -> None:
         return
     try:
         await data["schedule_runtime"].async_clear_temporary_override(msg["room_id"])
+    except ValueError as err:
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, str(err))
+        return
+    connection.send_result(msg["id"], data["schedule_runtime"].quick_change_state())
+
+
+@_require_feature(CONF_STANDARD_USER_QUICK_CHANGE)
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "zeal/set_room_occupancy",
+        vol.Required("entry_id"): str,
+        vol.Required("room_id"): str,
+        vol.Required("occupied"): vol.Any(None, bool),
+    }
+)
+@websocket_api.async_response
+async def ws_set_room_occupancy(hass, connection, msg) -> None:
+    """Set manual room occupancy or resume its configured calendar."""
+    data = _loaded_entry(hass, msg["entry_id"])
+    if data is None:
+        _send_not_found(connection, msg)
+        return
+    try:
+        await data["schedule_runtime"].async_set_room_occupancy(
+            msg["room_id"], msg["occupied"]
+        )
     except ValueError as err:
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, str(err))
         return

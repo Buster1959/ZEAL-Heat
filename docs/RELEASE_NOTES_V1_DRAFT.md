@@ -17,6 +17,8 @@ to `1.0.0`.
   opening contacts; each zone opens its actuator with every room-demand entity.
 - Seven-day visual schedules with exact editing, day application and room copy.
 - Temporary Quick Change for rooms, zones, selections or the whole house.
+- Opt-in per-room occupancy setback with manual or Home Assistant Calendar
+  occupancy and restart-safe stay-long guest comfort offsets.
 - Calendar or exact-date Away mode with an immediate **End Away now** action.
 - Downloadable configuration and bounded persistent application audit trail.
 - Optional sidebar navigation and clear per-instance management/deletion.

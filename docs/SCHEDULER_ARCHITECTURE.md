@@ -1,7 +1,7 @@
 # ZEAL-Heat Scheduler Architecture
 
 Status: Block 2 model, Block 3 runtime, Block 6 visual editor, Block 7 Quick
-Change/audit and Block 8 Away mode complete.
+Change/audit, Block 8 Away mode and version 0.16 room occupancy complete.
 
 ## Independence boundary
 
@@ -45,6 +45,8 @@ unknown future versions fail closed.
   saved weekly schedule.
 - `away.py`: validates the mutually exclusive Off, Home Assistant Calendar and
   date-range sources, the global Away target and persisted schedule settings.
+- `occupancy.py`: validates and serializes the separate restart-safe per-room
+  stay state (occupancy, manual calendar override, stay start and comfort offset).
 - `storage.py`: the only Home Assistant-facing module in this package; adapts
   the pure document to a separate versioned `Store`.
 
@@ -69,6 +71,14 @@ The runtime never reads, stores, selects or calls a physical TRV entity ID.
 If a configured room thermostat is not currently registered, the application
 is skipped and is not marked successful. A later Coordinator update retries the
 current period; successfully applied periods are not repeated.
+
+Occupancy configuration lives with the room hierarchy and is disabled by
+default. Live stay state uses `zeal.occupancy.<config-entry-id>` rather than the
+schedule document, so automatic calendar transitions do not create schedule
+revision conflicts. Missing/unavailable calendar state retains the persisted
+last value. Manual occupancy takes precedence until Follow calendar is selected.
+An occupied guest adjustment is measured from the underlying active schedule
+period and the resulting offset follows later periods until occupancy ends.
 
 ## Visual editor
 
@@ -148,14 +158,17 @@ are included.
 Room-target precedence is:
 
 1. active global Away target;
-2. an unexpired Quick Change hold;
-3. a manual thermostat change, respected until the next schedule transition;
-4. the active weekly schedule period.
+2. an enabled room's unoccupied setback;
+3. an unexpired Quick Change hold;
+4. the occupied stay's guest comfort offset;
+5. the active weekly schedule period.
 
-Away and Quick Change targets are reasserted if their canonical ZEAL-Heat room
-thermostat is manually changed. A normal scheduled target is deliberately not
-reasserted until the next transition. Quick Change cannot create a new hold
-while Away is active; a pre-existing hold remains in memory and resumes when
-Away ends if it has not expired. The separate per-zone Manual Override remains
-the highest actuator authority: it prevents ZEAL-Heat from changing that zone's
-pump/relay and is not bypassed by Away.
+Away, unoccupied setback and Quick Change targets are reasserted if their
+canonical ZEAL-Heat room thermostat is manually changed. In an occupied
+occupancy-enabled room the same change updates the stay offset instead. A
+legacy room's scheduled target retains its earlier until-next-transition manual
+behaviour. Quick Change cannot create a new hold while Away is active; a
+pre-existing hold remains in memory and resumes when Away ends if it has not
+expired. The separate per-zone Manual Override remains the highest actuator
+authority: it prevents ZEAL-Heat from changing that zone's pump/relay and is
+not bypassed by Away.

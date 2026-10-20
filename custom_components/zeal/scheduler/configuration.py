@@ -30,8 +30,16 @@ from ..const import (
     ROOM_ID,
     ROOM_NAME,
     ROOM_OPENING_SENSORS,
+    ROOM_OCCUPANCY_CALENDAR,
+    ROOM_OCCUPANCY_ENABLED,
+    ROOM_OCCUPANCY_SOURCE,
     ROOM_SENSORS,
     ROOM_TRVS,
+    ROOM_UNOCCUPIED_TEMPERATURE,
+    OCCUPANCY_SOURCE_CALENDAR,
+    OCCUPANCY_SOURCE_MANUAL,
+    MAX_TARGET_TEMPERATURE,
+    MIN_TARGET_TEMPERATURE,
     ASHP_CAPABILITY_HEAT_AND_COOL,
     ASHP_CAPABILITY_HEAT_ONLY,
     ZONE_ASHP_CAPABILITY,
@@ -454,6 +462,47 @@ def validate_hierarchy(
             active = raw_room.get(ROOM_ACTIVE, True)
             if not isinstance(active, bool):
                 raise ValueError(f"{field}.active must be true or false")
+            occupancy_enabled = raw_room.get(ROOM_OCCUPANCY_ENABLED, False)
+            if not isinstance(occupancy_enabled, bool):
+                raise ValueError(
+                    f"{field}.occupancy_enabled must be true or false"
+                )
+            unoccupied_temperature = raw_room.get(
+                ROOM_UNOCCUPIED_TEMPERATURE, 12.0
+            )
+            if (
+                isinstance(unoccupied_temperature, bool)
+                or not isinstance(unoccupied_temperature, (int, float))
+                or not MIN_TARGET_TEMPERATURE
+                <= float(unoccupied_temperature)
+                <= MAX_TARGET_TEMPERATURE
+            ):
+                raise ValueError(
+                    f"{field}.unoccupied_temperature must be from "
+                    f"{MIN_TARGET_TEMPERATURE} to {MAX_TARGET_TEMPERATURE}"
+                )
+            occupancy_source = raw_room.get(
+                ROOM_OCCUPANCY_SOURCE, OCCUPANCY_SOURCE_MANUAL
+            )
+            if occupancy_source not in (
+                OCCUPANCY_SOURCE_MANUAL,
+                OCCUPANCY_SOURCE_CALENDAR,
+            ):
+                raise ValueError(f"{field}.occupancy_source is invalid")
+            occupancy_calendar = raw_room.get(ROOM_OCCUPANCY_CALENDAR) or None
+            if (
+                occupancy_enabled
+                and occupancy_source == OCCUPANCY_SOURCE_CALENDAR
+            ):
+                if not isinstance(occupancy_calendar, str):
+                    raise ValueError(
+                        f"{field}.occupancy_calendar is required for calendar occupancy"
+                    )
+                registry_entity(
+                    occupancy_calendar,
+                    "calendar",
+                    f"{field}.occupancy_calendar",
+                )
             cooling_capable = raw_room.get(ROOM_COOLING_CAPABLE, False)
             if not isinstance(cooling_capable, bool):
                 raise ValueError(
@@ -467,6 +516,17 @@ def validate_hierarchy(
                     ROOM_SENSORS: sensors,
                     ROOM_OPENING_SENSORS: opening_sensors,
                     ROOM_ACTIVE: active,
+                    ROOM_OCCUPANCY_ENABLED: occupancy_enabled,
+                    ROOM_UNOCCUPIED_TEMPERATURE: float(
+                        unoccupied_temperature
+                    ),
+                    ROOM_OCCUPANCY_SOURCE: occupancy_source,
+                    ROOM_OCCUPANCY_CALENDAR: (
+                        occupancy_calendar
+                        if occupancy_enabled
+                        and occupancy_source == OCCUPANCY_SOURCE_CALENDAR
+                        else None
+                    ),
                     ROOM_COOLING_CAPABLE: cooling_capable,
                 }
             )

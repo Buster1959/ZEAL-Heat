@@ -20,8 +20,12 @@ from custom_components.zeal.const import (
     ROOM_ID,
     ROOM_NAME,
     ROOM_OPENING_SENSORS,
+    ROOM_OCCUPANCY_CALENDAR,
+    ROOM_OCCUPANCY_ENABLED,
+    ROOM_OCCUPANCY_SOURCE,
     ROOM_SENSORS,
     ROOM_TRVS,
+    ROOM_UNOCCUPIED_TEMPERATURE,
     ZONE_ID,
     ZONE_NAME,
     ZONE_ROOMS,
@@ -170,7 +174,40 @@ def test_valid_hierarchy_is_normalized_from_home_assistant_registries(hass):
     assert room[ROOM_TRVS] == [trv.entity_id]
     assert room[ROOM_SENSORS] == [sensor.entity_id]
     assert room[ROOM_OPENING_SENSORS] == [opening.entity_id]
+    assert room[ROOM_OCCUPANCY_ENABLED] is False
+    assert room[ROOM_UNOCCUPIED_TEMPERATURE] == 12.0
+    assert room[ROOM_OCCUPANCY_SOURCE] == "manual"
+    assert room[ROOM_OCCUPANCY_CALENDAR] is None
     assert normalized[0][ZONE_SWITCH] == switch.entity_id
+
+
+def test_occupancy_calendar_configuration_is_validated_and_normalized(hass):
+    _, _, _, _, zone = create_registry_fixture(hass)
+    calendar = er.async_get(hass).async_get_or_create(
+        "calendar",
+        "test",
+        "guest_room",
+        suggested_object_id="guest_room",
+    )
+    room = zone[ZONE_ROOMS][0]
+    room.update(
+        {
+            ROOM_OCCUPANCY_ENABLED: True,
+            ROOM_UNOCCUPIED_TEMPERATURE: 11.5,
+            ROOM_OCCUPANCY_SOURCE: "calendar",
+            ROOM_OCCUPANCY_CALENDAR: calendar.entity_id,
+        }
+    )
+
+    normalized = validate_hierarchy(hass, [zone])[0][ZONE_ROOMS][0]
+    assert normalized[ROOM_OCCUPANCY_ENABLED] is True
+    assert normalized[ROOM_UNOCCUPIED_TEMPERATURE] == 11.5
+    assert normalized[ROOM_OCCUPANCY_SOURCE] == "calendar"
+    assert normalized[ROOM_OCCUPANCY_CALENDAR] == calendar.entity_id
+
+    room[ROOM_OCCUPANCY_CALENDAR] = "calendar.missing"
+    with pytest.raises(ValueError, match="unknown calendar"):
+        validate_hierarchy(hass, [zone])
 
 
 @pytest.mark.parametrize(

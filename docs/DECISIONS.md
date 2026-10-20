@@ -21,14 +21,22 @@ companion Wiki retains the longer chronological design history.
 9. Quick Change is temporary runtime state and never edits the saved week.
 10. Away activation is Off, one Home Assistant calendar or one exact date
     range. The sources are mutually exclusive and Away can be ended early.
-11. Room target precedence is Away, Quick Change, manual room target until the
-    next transition, then weekly schedule. Zone Manual override remains the
-    highest actuator authority.
+11. Room target precedence is Away, per-room unoccupied setback, Quick Change,
+    occupied-stay guest comfort offset, then weekly schedule. Occupancy is
+    opt-in and separate from active/inactive. Manual occupancy overrides a
+    calendar until Follow calendar is selected; an unavailable calendar retains
+    the persisted last state. Zone Manual override remains the highest actuator
+    authority.
 12. Configuration changes use validated admin-only WebSocket commands and an
     optimistic revision token to reject stale browser writes.
 13. Audit retention is bounded at 500 outcomes and excludes credentials.
 14. V1 is heating-only. Cooling fields are reserved with safe defaults but are
     not exposed or acted upon.
+**Occupancy comfort offsets.** A guest thermostat/TRV change in an occupied
+room is measured against the underlying scheduled target, persists across later
+schedule transitions and restarts, updates on a further adjustment and clears
+when occupancy ends. Existing write-echo, delayed-device, multi-TRV and 5–30°C
+safety guards apply.
 
 ## Next-major-version design constraints
 

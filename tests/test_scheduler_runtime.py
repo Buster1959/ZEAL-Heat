@@ -14,8 +14,12 @@ from custom_components.zeal.const import (
     ROOM_ACTIVE,
     ROOM_ID,
     ROOM_NAME,
+    ROOM_OCCUPANCY_CALENDAR,
+    ROOM_OCCUPANCY_ENABLED,
+    ROOM_OCCUPANCY_SOURCE,
     ROOM_SENSORS,
     ROOM_TRVS,
+    ROOM_UNOCCUPIED_TEMPERATURE,
     ZONE_ID,
     ZONE_NAME,
     ZONE_ROOMS,
@@ -30,6 +34,7 @@ from custom_components.zeal.scheduler.models import (
     SchedulePeriod,
 )
 from custom_components.zeal.scheduler.runtime import ScheduleRuntime
+from custom_components.zeal.scheduler.occupancy import OccupancyStorage
 from homeassistant.helpers.storage import Store
 
 
@@ -98,6 +103,40 @@ class FakeCanonicalThermostat:
     def apply_target_setpoint(self, temperature, *, source):
         self.target_temperature = temperature
         self.applied.append((temperature, source))
+
+
+class MemoryStore:
+    def __init__(self, data=None) -> None:
+        self.data = data
+
+    async def async_load(self):
+        return self.data
+
+    async def async_save(self, data):
+        self.data = data
+
+
+def configure_occupancy_room(
+    coordinator: FakeCoordinator,
+    *,
+    source: str = "manual",
+    calendar_entity_id: str | None = None,
+    enabled: bool = True,
+) -> None:
+    coordinator.zones = [
+        {
+            ZONE_ROOMS: [
+                {
+                    ROOM_ID: "living_room",
+                    ROOM_ACTIVE: True,
+                    ROOM_OCCUPANCY_ENABLED: enabled,
+                    ROOM_UNOCCUPIED_TEMPERATURE: 12.0,
+                    ROOM_OCCUPANCY_SOURCE: source,
+                    ROOM_OCCUPANCY_CALENDAR: calendar_entity_id,
+                }
+            ]
+        }
+    ]
 
 
 def install_timer_capture(monkeypatch):
@@ -497,6 +536,254 @@ async def test_date_range_activates_ends_and_reconciles_inside_range_on_restart(
     )
 
 
+async def test_manual_occupancy_setback_is_distinct_from_inactive_room(
+    hass, monkeypatch
+):
+    now = datetime(2026, 8, 24, 12, 0)
+    monkeypatch.setattr(
+        "custom_components.zeal.scheduler.runtime.dt_util.now", lambda: now
+    )
+    install_timer_capture(monkeypatch)
+    coordinator = FakeCoordinator()
+    coordinator.available = {"living_room"}
+    configure_occupancy_room(coordinator)
+    storage = MemoryStore()
+    runtime = ScheduleRuntime(
+        hass,
+        coordinator,
+        occupancy_storage=OccupancyStorage(hass, "test", storage),
+    )
+    await runtime.async_start(
+        schedule_configuration(
+            schedule_room(
+                "living_room",
+                "Living Room",
+                (SchedulePeriod("morning", "morning", "Morning", "07:00", 20),),
+            )
+        )
+    )
+
+    await runtime.async_set_room_occupancy("living_room", False)
+    assert coordinator.calls[-1] == (
+        "living_room",
+        12.0,
+        "room_occupancy_ended",
+    )
+    state = runtime.quick_change_state()["rooms"][0]
+    assert state["occupancy"]["occupied"] is False
+    assert state["effective_source"] == "unoccupied_setback"
+
+    await runtime.async_set_room_occupancy("living_room", True)
+    assert coordinator.calls[-1] == (
+        "living_room",
+        20.0,
+        "room_occupancy_started",
+    )
+
+
+async def test_guest_offset_uses_underlying_schedule_and_crosses_boundaries(
+    hass, monkeypatch
+):
+    current = [datetime(2026, 8, 24, 12, 0)]
+    monkeypatch.setattr(
+        "custom_components.zeal.scheduler.runtime.dt_util.now", lambda: current[0]
+    )
+    install_timer_capture(monkeypatch)
+    coordinator = FakeCoordinator()
+    coordinator.available = {"living_room"}
+    configure_occupancy_room(coordinator)
+    runtime = ScheduleRuntime(hass, coordinator)
+    await runtime.async_start(
+        schedule_configuration(
+            schedule_room(
+                "living_room",
+                "Living Room",
+                (
+                    SchedulePeriod("morning", "morning", "Morning", "07:00", 20),
+                    SchedulePeriod("evening", "evening", "Evening", "18:00", 18),
+                ),
+            )
+        )
+    )
+
+    assert await runtime.async_handle_guest_target(
+        "living_room", 22, source="guest_physical_trv_adjustment"
+    )
+    assert coordinator.calls[-1][1] == 22.0
+    assert await runtime.async_handle_guest_target(
+        "living_room", 21, source="guest_physical_trv_adjustment"
+    )
+    room = runtime.quick_change_state()["rooms"][0]
+    assert room["occupancy"]["comfort_offset"] == 1.0
+
+    current[0] = datetime(2026, 8, 24, 18, 0)
+    await runtime._async_handle_transition(current[0])
+    assert coordinator.calls[-1] == (
+        "living_room",
+        19.0,
+        "scheduled_transition",
+    )
+
+    await runtime.async_set_room_occupancy("living_room", False)
+    assert runtime.quick_change_state()["rooms"][0]["occupancy"][
+        "comfort_offset"
+    ] == 0.0
+
+
+async def test_occupancy_stay_and_offset_survive_restart_without_target_spike(
+    hass, monkeypatch
+):
+    current = [datetime(2026, 8, 24, 12, 0)]
+    monkeypatch.setattr(
+        "custom_components.zeal.scheduler.runtime.dt_util.now", lambda: current[0]
+    )
+    install_timer_capture(monkeypatch)
+    storage = MemoryStore()
+    configuration = schedule_configuration(
+        schedule_room(
+            "living_room",
+            "Living Room",
+            (
+                SchedulePeriod("morning", "morning", "Morning", "07:00", 20),
+                SchedulePeriod("evening", "evening", "Evening", "18:00", 18),
+            ),
+        )
+    )
+    first_coordinator = FakeCoordinator()
+    first_coordinator.available = {"living_room"}
+    configure_occupancy_room(first_coordinator)
+    first = ScheduleRuntime(
+        hass,
+        first_coordinator,
+        occupancy_storage=OccupancyStorage(hass, "test", storage),
+    )
+    await first.async_start(configuration)
+    await first.async_handle_guest_target(
+        "living_room", 22, source="guest_thermostat_adjustment"
+    )
+    await first.async_stop()
+
+    current[0] = datetime(2026, 8, 24, 19, 0)
+    restarted_coordinator = FakeCoordinator()
+    restarted_coordinator.available = {"living_room"}
+    configure_occupancy_room(restarted_coordinator)
+    restarted = ScheduleRuntime(
+        hass,
+        restarted_coordinator,
+        occupancy_storage=OccupancyStorage(hass, "test", storage),
+    )
+    await restarted.async_start(configuration)
+    assert restarted_coordinator.calls == [
+        ("living_room", 20.0, "startup_reconciliation")
+    ]
+    assert restarted.quick_change_state()["rooms"][0]["occupancy"][
+        "comfort_offset"
+    ] == 2.0
+
+
+async def test_calendar_occupancy_manual_precedence_overlap_and_missing_fallback(
+    hass, monkeypatch
+):
+    now = datetime(2026, 8, 24, 12, 0)
+    monkeypatch.setattr(
+        "custom_components.zeal.scheduler.runtime.dt_util.now", lambda: now
+    )
+    install_timer_capture(monkeypatch)
+    storage = MemoryStore()
+    coordinator = FakeCoordinator()
+    coordinator.available = {"living_room"}
+    configure_occupancy_room(
+        coordinator,
+        source="calendar",
+        calendar_entity_id="calendar.guest_room",
+    )
+    hass.states.async_set("calendar.guest_room", "off")
+    configuration = schedule_configuration(
+        schedule_room(
+            "living_room",
+            "Living Room",
+            (SchedulePeriod("morning", "morning", "Morning", "07:00", 20),),
+        )
+    )
+    runtime = ScheduleRuntime(
+        hass,
+        coordinator,
+        occupancy_storage=OccupancyStorage(hass, "test", storage),
+    )
+    await runtime.async_start(configuration)
+    assert coordinator.calls[-1][1] == 12.0
+
+    await runtime.async_set_room_occupancy("living_room", True)
+    assert coordinator.calls[-1][1] == 20.0
+    calls_before_calendar = len(coordinator.calls)
+    hass.states.async_set("calendar.guest_room", "on")
+    hass.states.async_set("calendar.guest_room", "off")
+    await hass.async_block_till_done()
+    assert len(coordinator.calls) == calls_before_calendar
+
+    await runtime.async_set_room_occupancy("living_room", None)
+    assert coordinator.calls[-1][1] == 12.0
+    hass.states.async_set("calendar.guest_room", "on")
+    await hass.async_block_till_done()
+    assert coordinator.calls[-1][1] == 20.0
+    calls_before_overlap_update = len(coordinator.calls)
+    hass.states.async_set("calendar.guest_room", "on", {"message": "overlap"})
+    await hass.async_block_till_done()
+    assert len(coordinator.calls) == calls_before_overlap_update
+
+    await runtime.async_handle_guest_target(
+        "living_room", 22, source="guest_thermostat_adjustment"
+    )
+    await runtime.async_stop()
+    hass.states.async_remove("calendar.guest_room")
+    restarted_coordinator = FakeCoordinator()
+    restarted_coordinator.available = {"living_room"}
+    configure_occupancy_room(
+        restarted_coordinator,
+        source="calendar",
+        calendar_entity_id="calendar.guest_room",
+    )
+    restarted = ScheduleRuntime(
+        hass,
+        restarted_coordinator,
+        occupancy_storage=OccupancyStorage(hass, "test", storage),
+    )
+    await restarted.async_start(configuration)
+    assert restarted_coordinator.calls[-1][1] == 22.0
+    state = restarted.quick_change_state()["rooms"][0]["occupancy"]
+    assert state["occupied"] is True
+    assert state["calendar_available"] is False
+
+
+async def test_legacy_room_keeps_manual_target_behaviour_when_occupancy_disabled(
+    hass, monkeypatch
+):
+    now = datetime(2026, 8, 24, 12, 0)
+    monkeypatch.setattr(
+        "custom_components.zeal.scheduler.runtime.dt_util.now", lambda: now
+    )
+    install_timer_capture(monkeypatch)
+    coordinator = FakeCoordinator()
+    coordinator.available = {"living_room"}
+    configure_occupancy_room(coordinator, enabled=False)
+    runtime = ScheduleRuntime(hass, coordinator)
+    await runtime.async_start(
+        schedule_configuration(
+            schedule_room(
+                "living_room",
+                "Living Room",
+                (SchedulePeriod("morning", "morning", "Morning", "07:00", 20),),
+            )
+        )
+    )
+    assert not await runtime.async_handle_guest_target(
+        "living_room", 22, source="guest_thermostat_adjustment"
+    )
+    assert runtime.quick_change_state()["rooms"][0]["occupancy"] == {
+        "enabled": False
+    }
+
+
 async def test_stop_cancels_timer_and_coordinator_listener(hass, monkeypatch):
     now = datetime(2026, 8, 24, 12, 0)
     monkeypatch.setattr(
@@ -662,7 +949,8 @@ async def test_remove_entry_deletes_only_that_instances_private_stores(
     assert removed == [
         (1, f"zeal_{entry.entry_id}"),
         (1, f"zeal.scheduler.{entry.entry_id}"),
-            (1, f"zeal.audit.{entry.entry_id}"),
-            (1, f"zeal.learning.{entry.entry_id}"),
-        ]
+        (1, f"zeal.audit.{entry.entry_id}"),
+        (1, f"zeal.learning.{entry.entry_id}"),
+        (1, f"zeal.occupancy.{entry.entry_id}"),
+    ]
     assert all("another-entry" not in key for _version, key in removed)

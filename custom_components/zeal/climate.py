@@ -176,7 +176,18 @@ class ZealRoomThermostat(CoordinatorEntity[ZealCoordinator], RestoreEntity, Clim
         if temp is None:
             return
         _LOGGER.debug("%s: user set target temperature to %s°C", self.entity_id, temp)
-        applied = await self.coordinator.async_set_room_target(
+        runtime = self.hass.data.get(DOMAIN, {}).get(
+            self._entry.entry_id, {}
+        ).get("schedule_runtime")
+        handled = bool(
+            runtime is not None
+            and await runtime.async_handle_guest_target(
+                self._room_id,
+                float(temp),
+                source="guest_thermostat_adjustment",
+            )
+        )
+        applied = handled or await self.coordinator.async_set_room_target(
             self._room_id, float(temp), source="manual_thermostat_change"
         )
         if applied:

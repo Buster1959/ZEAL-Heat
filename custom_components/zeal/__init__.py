@@ -17,6 +17,8 @@ from .const import (
     CONF_LEARNING_PERSISTENT_NOTIFICATIONS,
     LEARNING_STORAGE_KEY_FMT,
     LEARNING_STORAGE_VERSION,
+    OCCUPANCY_STORAGE_KEY_FMT,
+    OCCUPANCY_STORAGE_VERSION,
     DOMAIN,
     ROOM_ID,
     ROOM_NAME,
@@ -38,6 +40,7 @@ from .scheduler.learning import (
     sync_persistent_notification,
 )
 from .scheduler.rooms import reconcile_room_schedules
+from .scheduler.occupancy import OccupancyStorage
 from .scheduler.runtime import ScheduleRuntime
 from .scheduler.storage import ScheduleStorage
 from .scheduler.websocket_api import async_register_commands
@@ -155,7 +158,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await schedule_storage.async_save(schedule_configuration)
     audit_log = AuditLog(hass, entry.entry_id)
     await audit_log.async_load()
-    schedule_runtime = ScheduleRuntime(hass, coordinator, audit_log)
+    occupancy_storage = OccupancyStorage(hass, entry.entry_id)
+    schedule_runtime = ScheduleRuntime(
+        hass, coordinator, audit_log, occupancy_storage
+    )
     learning_store = LearningStore(hass, entry.entry_id)
     await learning_store.async_load()
     schedule_learning = ScheduleLearning(
@@ -182,6 +188,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
         "schedule_storage": schedule_storage,
         "schedule_runtime": schedule_runtime,
+        "occupancy_storage": occupancy_storage,
         "audit_log": audit_log,
         "learning_store": learning_store,
         "schedule_learning": schedule_learning,
@@ -249,6 +256,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         (SCHEDULE_STORAGE_VERSION, SCHEDULE_STORAGE_KEY_FMT),
         (AUDIT_STORAGE_VERSION, AUDIT_STORAGE_KEY_FMT),
         (LEARNING_STORAGE_VERSION, LEARNING_STORAGE_KEY_FMT),
+        (OCCUPANCY_STORAGE_VERSION, OCCUPANCY_STORAGE_KEY_FMT),
     ):
         await Store(
             hass,
