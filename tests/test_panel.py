@@ -359,6 +359,21 @@ def test_frontend_places_safety_warning_only_on_setup_page():
     assert content.index("this._warning()") > content.index("this._renderOverview()")
 
 
+def test_frontend_places_setup_save_result_below_save_buttons():
+    """Setup save success and failure belong beside the action that produced them."""
+    source = PANEL_FILE.read_text()
+    setup = source[source.index("  _renderSetup() {") : source.index("  _renderDownloads() {")]
+    save = source[source.index("  async _save() {") : source.index("  _styles() {")]
+    assert setup.index('data-action="save"') < setup.index("setup-save-feedback")
+    assert 'class="setup-save-feedback ${this._escape(' in setup
+    assert 'title: "Setup saved"' in save
+    assert '"Setup not saved"' in save
+    assert "ZEAL reloaded and is using the updated configuration." in save
+    assert '_notice = "Setup saved' not in save
+    assert "setup-save-feedback.success" in source
+    assert "setup-save-feedback.error" in source
+
+
 def test_frontend_refreshes_schedule_navigation_after_setup_reload():
     """A slow config-entry reload must not leave a newly added zone hidden."""
     source = PANEL_FILE.read_text()

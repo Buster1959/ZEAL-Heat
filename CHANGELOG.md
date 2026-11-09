@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.4 — 2026-11-09
+
+- Show setup-save success or the precise validation/reload failure directly
+  beneath the Save setup controls instead of in the page-wide top banner.
+
 ## 0.16.3 — 2026-11-09
 
 - Tie the ZEAL panel cache identifier to the integration release version so

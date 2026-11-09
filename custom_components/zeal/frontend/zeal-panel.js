@@ -84,6 +84,7 @@ class ZealPanel extends HTMLElement {
     this._downloadBusy = false;
     this._notice = "";
     this._error = "";
+    this._setupSaveResult = null;
     this._overviewDemandSignatures = new Map();
     this._zoneControlLoading = false;
     this._zoneControlLastFetch = 0;
@@ -1853,11 +1854,30 @@ class ZealPanel extends HTMLElement {
       ${this._renderInstanceManagement()}
       <div class="save-bar">
         <span class="save-state">${this._dirty ? "Unsaved setup changes" : "Setup is up to date"}</span>
-        <div><button class="text-button" data-action="reset" ${
-          !this._dirty || this._saving ? "disabled" : ""
-        }>Discard changes</button><button class="primary" data-action="save" ${
-          !this._dirty || this._saving ? "disabled" : ""
-        }>${this._saving ? "Saving…" : "Save setup"}</button></div>
+        <div class="setup-save-column">
+          <div class="setup-save-buttons"><button class="text-button" data-action="reset" ${
+            !this._dirty || this._saving ? "disabled" : ""
+          }>Discard changes</button><button class="primary" data-action="save" ${
+            !this._dirty || this._saving ? "disabled" : ""
+          }>${this._saving ? "Saving…" : "Save setup"}</button></div>
+          ${
+            this._setupSaveResult
+              ? `<div class="setup-save-feedback ${this._escape(
+                  this._setupSaveResult.status
+                )}" role="${
+                  this._setupSaveResult.status === "success" ? "status" : "alert"
+                }"><ha-icon icon="${
+                  this._setupSaveResult.status === "success"
+                    ? "mdi:check-circle"
+                    : "mdi:alert-circle"
+                }"></ha-icon><span><strong>${this._escape(
+                  this._setupSaveResult.title
+                )}</strong><small>${this._escape(
+                  this._setupSaveResult.message
+                )}</small></span></div>`
+              : ""
+          }
+        </div>
       </div>`;
   }
 
@@ -2551,6 +2571,7 @@ class ZealPanel extends HTMLElement {
       this._learningEnabled = this._configuration.learning_enabled === true;
       this._learningPersistentNotifications = this._configuration.learning_persistent_notifications !== false;
       this._dirty = false;
+      this._setupSaveResult = null;
       this._error = "";
       this._render();
     });
@@ -2586,6 +2607,14 @@ class ZealPanel extends HTMLElement {
 
   _markChanged() {
     this._dirty = true;
+    this._setupSaveResult = null;
+    this._notice = "";
+    this._error = "";
+    this._render();
+  }
+
+  _setSetupSaveResult(status, title, message) {
+    this._setupSaveResult = { status, title, message };
     this._notice = "";
     this._error = "";
     this._render();
@@ -2818,22 +2847,27 @@ class ZealPanel extends HTMLElement {
   async _save() {
     if (this._saving || !this._dirty) return;
     if (this._awayDirty) {
-      this._error = "Save or discard the Away settings before saving room and zone setup changes.";
-      this._render();
+      this._setSetupSaveResult(
+        "error",
+        "Setup not saved",
+        "Save or discard the Away settings before saving room and zone setup changes."
+      );
       return;
     }
     const invalidName = this._draft.find((zone) => !String(zone.name || "").trim());
     if (invalidName) {
-      this._error = "Every zone needs a name.";
-      this._render();
+      this._setSetupSaveResult("error", "Setup not saved", "Every zone needs a name.");
       return;
     }
     const invalidDelay = this._draft.find(
       (zone) => !Number.isInteger(Number(zone.reenable_delay)) || Number(zone.reenable_delay) < 0 || Number(zone.reenable_delay) > 3600
     );
     if (invalidDelay) {
-      this._error = "Every re-enable delay must be a whole number from 0 to 3600 seconds.";
-      this._render();
+      this._setSetupSaveResult(
+        "error",
+        "Setup not saved",
+        "Every re-enable delay must be a whole number from 0 to 3600 seconds."
+      );
       return;
     }
     const invalidOccupancy = this._draft
@@ -2845,11 +2879,16 @@ class ZealPanel extends HTMLElement {
         (room.occupancy_source === "calendar" && !room.occupancy_calendar)
       ));
     if (invalidOccupancy) {
-      this._error = `Each occupancy room needs a valid setback from ${MIN_SCHEDULE_TEMPERATURE} to ${MAX_SCHEDULE_TEMPERATURE}${this._scheduleTemperatureUnit()} and a calendar when calendar control is selected.`;
-      this._render();
+      this._setSetupSaveResult(
+        "error",
+        "Setup not saved",
+        `Each occupancy room needs a valid setback from ${MIN_SCHEDULE_TEMPERATURE} to ${MAX_SCHEDULE_TEMPERATURE}${this._scheduleTemperatureUnit()} and a calendar when calendar control is selected.`
+      );
       return;
     }
     this._saving = true;
+    this._setupSaveResult = null;
+    this._notice = "";
     this._error = "";
     this._render();
     try {
@@ -2878,15 +2917,17 @@ class ZealPanel extends HTMLElement {
       this._learningPersistentNotifications = response.learning_persistent_notifications;
       this._draft = this._copy(response.zones);
       this._dirty = false;
-      this._notice = "Setup saved. ZEAL is reloading the updated configuration.";
       await this._reloadAfterSave(response.revision);
     } catch (error) {
       this._saving = false;
       const conflict = error?.code === "conflict" || error?.body?.code === "conflict";
-      this._error = conflict
-        ? "ZEAL changed in another browser or process. Reload the latest setup before trying again."
-        : this._message(error, "Setup could not be saved.");
-      this._render();
+      this._setSetupSaveResult(
+        "error",
+        "Setup not saved",
+        conflict
+          ? "ZEAL changed in another browser or process. Reload the latest setup before trying again."
+          : this._message(error, "Home Assistant did not accept the setup changes.")
+      );
     }
   }
 
@@ -2900,6 +2941,11 @@ class ZealPanel extends HTMLElement {
         });
         if (configuration.revision === expectedRevision) {
           this._saving = false;
+          this._setupSaveResult = {
+            status: "success",
+            title: "Setup saved",
+            message: "ZEAL reloaded and is using the updated configuration.",
+          };
           this._acceptConfiguration(configuration);
           return;
         }
@@ -2908,8 +2954,11 @@ class ZealPanel extends HTMLElement {
       }
     }
     this._saving = false;
-    this._notice = "Setup saved. Reload this page if the refreshed values do not appear shortly.";
-    this._render();
+    this._setSetupSaveResult(
+      "error",
+      "Setup saved, reload incomplete",
+      "The changes were stored, but ZEAL could not confirm the refreshed configuration. Reload this page before making further changes."
+    );
   }
 
   _styles() {
@@ -3162,6 +3211,14 @@ class ZealPanel extends HTMLElement {
       .away-save-state { color:var(--secondary-text-color); }
       .save-bar { position:sticky; bottom:12px; z-index:2; display:flex; justify-content:space-between; align-items:center; gap:14px; padding:12px 14px; margin-top:18px; background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:10px; box-shadow:0 5px 20px rgba(0,0,0,.18); }
       .save-bar > div { display:flex; gap:8px; }
+      .save-bar > .setup-save-column { flex-direction:column; align-items:flex-end; }
+      .setup-save-buttons { display:flex; gap:8px; }
+      .setup-save-feedback { display:flex; align-items:flex-start; gap:8px; max-width:560px; padding:9px 11px; border:1px solid; border-radius:7px; }
+      .setup-save-feedback ha-icon { flex:none; --mdc-icon-size:20px; }
+      .setup-save-feedback span, .setup-save-feedback strong, .setup-save-feedback small { display:block; }
+      .setup-save-feedback small { margin-top:2px; color:inherit; }
+      .setup-save-feedback.success { color:var(--success-color, #2e7d32); background:color-mix(in srgb, var(--success-color, #2e7d32) 10%, var(--card-background-color)); }
+      .setup-save-feedback.error { color:var(--error-color); background:color-mix(in srgb, var(--error-color) 10%, var(--card-background-color)); }
       .save-state, .schedule-save-state { color:var(--secondary-text-color); }
       .message { border-radius:8px; padding:12px 14px; margin:0 0 16px; }
       .message.error { color:var(--error-color); background:color-mix(in srgb, var(--error-color) 10%, var(--card-background-color)); border:1px solid var(--error-color); }
@@ -3201,6 +3258,9 @@ class ZealPanel extends HTMLElement {
         .add-room { width:100%; }
         .save-bar { align-items:stretch; flex-direction:column; bottom:8px; }
         .save-bar > div { display:grid; grid-template-columns:1fr 1fr; }
+        .save-bar > .setup-save-column { display:flex; align-items:stretch; }
+        .setup-save-buttons { display:grid; grid-template-columns:1fr 1fr; }
+        .setup-save-feedback { max-width:none; }
         .safety-warning { padding:13px; }
       }
       @media (max-width: 430px) {

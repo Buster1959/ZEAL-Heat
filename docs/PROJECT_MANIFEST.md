@@ -9,7 +9,7 @@
 - Integration type: hub
 - Distribution target: HACS custom integration
 - Current release-candidate branch: `main`
-- Current manifest version: `0.16.3` (pre-V1, with thermostat-controlled electric
+- Current manifest version: `0.16.4` (pre-V1, with thermostat-controlled electric
   zones, physical-thermostat-aware target limits and reload-safe panel updates)
 
 ## Independence boundary
