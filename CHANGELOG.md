@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.3 — 2026-11-09
+
+- Tie the ZEAL panel cache identifier to the integration release version so
+  Home Assistant browsers load the new Electric heat-source interface after an
+  update instead of reusing an older cached panel module.
+
 ## 0.16.2 — 2026-11-09
 
 - Keep the active ZEAL panel route registered while saved setup changes reload

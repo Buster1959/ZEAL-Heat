@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -24,6 +25,16 @@ PANEL_FILE = (
     / "frontend"
     / "zeal-panel.js"
 )
+
+
+def test_panel_cache_version_matches_integration_release():
+    """Every release must give the browser a fresh panel module URL."""
+    manifest = json.loads(
+        (PANEL_FILE.parents[1] / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert PANEL_ASSET_VERSION == manifest["version"]
+
+
 async def test_initial_flow_only_names_an_empty_instance(hass):
     """Detailed heating setup belongs to the panel, not a multi-page flow."""
     result = await hass.config_entries.flow.async_init(
