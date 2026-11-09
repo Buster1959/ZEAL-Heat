@@ -163,6 +163,38 @@ async def test_shared_sidebar_link_follows_all_loaded_instances(hass):
     assert PANEL_URL_PATH not in hass.data.get(frontend.DATA_PANELS, {})
 
 
+async def test_options_reload_keeps_active_panel_route(hass, monkeypatch):
+    """Saving setup must not remove the route and redirect the active UI."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="ZEAL HVAC System",
+        data={},
+        options={CONF_ZONES: [], CONF_SHOW_IN_SIDEBAR: True},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    removed_paths = []
+    original_remove_panel = frontend.async_remove_panel
+
+    def record_remove_panel(hass, frontend_url_path, **kwargs):
+        removed_paths.append(frontend_url_path)
+        return original_remove_panel(hass, frontend_url_path, **kwargs)
+
+    monkeypatch.setattr(frontend, "async_remove_panel", record_remove_panel)
+    hass.config_entries.async_update_entry(
+        entry,
+        options={**entry.options, CONF_SHOW_IN_SIDEBAR: False},
+    )
+    await hass.async_block_till_done()
+
+    assert PANEL_URL_PATH not in removed_paths
+    panel = hass.data[frontend.DATA_PANELS][PANEL_URL_PATH].to_response()
+    assert panel["title"] is None
+    assert panel["config_panel_domain"] is None
+
+
 def test_frontend_contains_setup_safety_and_responsive_contracts():
     """Protect the Block 5 features that are not executable in pytest's DOM."""
     source = PANEL_FILE.read_text()

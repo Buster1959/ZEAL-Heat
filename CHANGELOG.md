@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.16.2 — 2026-11-09
+
+- Keep the active ZEAL panel route registered while saved setup changes reload
+  the integration, preventing Home Assistant from redirecting to a default page.
+- Update the shared panel registration in place when sidebar visibility changes.
+
+## 0.16.1 — 2026-11-09
+
+- Add thermostat-controlled electric heat sources without a separate actuator.
+- Support frost-protection schedule targets down to the physical thermostat's
+  advertised minimum temperature.
+
 ## 0.16.0 — 2026-10-20
 
 - Add opt-in per-room occupancy setback with a configurable unoccupied target.

@@ -49,6 +49,7 @@ from .thermal_storage import ThermalStorage
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[str] = ["switch", "sensor", "binary_sensor", "climate"]
+_RELOADING_ENTRIES = f"{DOMAIN}_reloading_entries"
 
 
 async def _async_cleanup_orphaned_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -229,7 +230,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update by reloading the config entry."""
-    await hass.config_entries.async_reload(entry.entry_id)
+    reloading_entries = hass.data.setdefault(_RELOADING_ENTRIES, set())
+    reloading_entries.add(entry.entry_id)
+    try:
+        await hass.config_entries.async_reload(entry.entry_id)
+    finally:
+        reloading_entries.discard(entry.entry_id)
+        if not reloading_entries:
+            hass.data.pop(_RELOADING_ENTRIES, None)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -241,7 +249,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await data["thermal_storage"].async_disable(delete_data=False)
             await data["schedule_runtime"].async_stop()
             data["coordinator"].async_teardown()
-        if not hass.data[DOMAIN]:
+        reloading_entries = hass.data.get(_RELOADING_ENTRIES, set())
+        if entry.entry_id in reloading_entries:
+            # Keep the route registered throughout an options-driven reload.
+            # Removing it, even briefly, makes Home Assistant navigate an open
+            # ZEAL panel back to its default page before setup can restore it.
+            pass
+        elif not hass.data[DOMAIN]:
             await async_remove_panel(hass)
         else:
             await async_sync_panel(hass)

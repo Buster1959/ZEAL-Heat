@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from homeassistant.components import frontend, panel_custom
+from homeassistant.components import frontend
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant
 
@@ -37,12 +37,10 @@ def _show_in_sidebar(hass: HomeAssistant) -> bool:
 
 
 async def async_sync_panel(hass: HomeAssistant) -> None:
-    """Expose ZEAL; its Setup view and configuration APIs remain admin-only."""
+    """Expose or update ZEAL without temporarily removing its active route."""
     lock = hass.data.setdefault(_PANEL_LOCK, asyncio.Lock())
     async with lock:
         show_in_sidebar = _show_in_sidebar(hass)
-        if _panel_exists(hass):
-            frontend.async_remove_panel(hass, PANEL_URL_PATH)
         if not hass.data.get(_STATIC_REGISTERED):
             await hass.http.async_register_static_paths(
                 [
@@ -54,15 +52,25 @@ async def async_sync_panel(hass: HomeAssistant) -> None:
                 ]
             )
             hass.data[_STATIC_REGISTERED] = True
-        await panel_custom.async_register_panel(
-            hass=hass,
+        frontend.async_register_built_in_panel(
+            hass,
+            component_name="custom",
             frontend_url_path=PANEL_URL_PATH,
-            webcomponent_name=PANEL_COMPONENT,
-            module_url=f"{PANEL_STATIC_URL}/zeal-panel.js?v={PANEL_ASSET_VERSION}",
             sidebar_title="ZEAL" if show_in_sidebar else None,
             sidebar_icon="mdi:radiator" if show_in_sidebar else None,
             require_admin=False,
             config_panel_domain=DOMAIN if show_in_sidebar else None,
+            config={
+                "_panel_custom": {
+                    "name": PANEL_COMPONENT,
+                    "embed_iframe": False,
+                    "trust_external_script": False,
+                    "module_url": (
+                        f"{PANEL_STATIC_URL}/zeal-panel.js?v={PANEL_ASSET_VERSION}"
+                    ),
+                }
+            },
+            update=_panel_exists(hass),
         )
 
 

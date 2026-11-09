@@ -12,7 +12,7 @@
 </p>
 
 > **ZEAL-Heat V1 release candidate — live regression testing is in progress.** The
-> current candidate is on `main` at manifest version `0.16.1`. It is feature
+> current candidate is on `main` at manifest version `0.16.2`. It is feature
 > complete for V1 but is not yet the production `1.0.0` release. Test with
 > dummy or spare equipment and complete the live acceptance record before
 > unattended use. The earlier rename is breaking for any old config entry:
