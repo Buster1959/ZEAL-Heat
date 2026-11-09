@@ -73,6 +73,7 @@ from .const import (
     ZONE_REENABLE_DELAY,
     ZONE_ROOMS,
     ZONE_SWITCH,
+    zone_is_thermostat_controlled,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -251,7 +252,8 @@ class ZealCoordinator(DataUpdateCoordinator[dict[str, ZoneStatus]]):
             switch = zone.get(ZONE_SWITCH)
             rooms = zone.get(ZONE_ROOMS, []) or []
 
-            if not switch:
+            thermostat_controlled = zone_is_thermostat_controlled(zone)
+            if not switch and not thermostat_controlled:
                 _LOGGER.info(
                     "Zone '%s': NOT ACTIONED - no switch configured (%d room(s) "
                     "defined but irrelevant until a switch is set)",
@@ -268,10 +270,10 @@ class ZealCoordinator(DataUpdateCoordinator[dict[str, ZoneStatus]]):
             total_active_rooms += len(active_rooms)
 
             _LOGGER.info(
-                "Zone '%s': ACTIONED - switch=%s, heat_source=%s, "
+                "Zone '%s': ACTIONED - control=%s, heat_source=%s, "
                 "reenable_delay=%ss, %d room(s) (%d active, %d inactive)",
                 zone_name,
-                switch,
+                "physical room thermostat" if thermostat_controlled else switch,
                 heat_source,
                 delay,
                 len(rooms),
@@ -417,7 +419,8 @@ class ZealCoordinator(DataUpdateCoordinator[dict[str, ZoneStatus]]):
             zone_id = zone[ZONE_ID]
             zone_name = zone.get(ZONE_NAME, zone_id)
 
-            if not zone.get(ZONE_SWITCH):
+            thermostat_controlled = zone_is_thermostat_controlled(zone)
+            if not zone.get(ZONE_SWITCH) and not thermostat_controlled:
                 # Nothing to control for this zone - skip entirely, same as
                 # ashp_controller.py's `if "switch" not in floor: continue`.
                 _LOGGER.debug("[%s] No switch configured, skipping zone entirely", zone_name)
@@ -425,7 +428,11 @@ class ZealCoordinator(DataUpdateCoordinator[dict[str, ZoneStatus]]):
 
             needs_heat, demand_lines = self._evaluate_zone(zone)
 
-            if needs_heat and self._zone_all_trvs_off(zone):
+            if (
+                not thermostat_controlled
+                and needs_heat
+                and self._zone_all_trvs_off(zone)
+            ):
                 _LOGGER.info(
                     "[%s] Every TRV is off (valves closed) - forcing pump off "
                     "immediately regardless of temperature demand, to avoid "
@@ -441,9 +448,12 @@ class ZealCoordinator(DataUpdateCoordinator[dict[str, ZoneStatus]]):
                 needs_heat,
                 f" ({'; '.join(demand_lines)})" if demand_lines else "",
             )
-            switches_ok, zone_off_changed = await self._async_apply_zone_switches(
-                zone, needs_heat
-            )
+            if thermostat_controlled:
+                switches_ok, zone_off_changed = True, False
+            else:
+                switches_ok, zone_off_changed = await self._async_apply_zone_switches(
+                    zone, needs_heat
+                )
             if zone_off_changed:
                 off_time_changed = True
 
@@ -779,6 +789,26 @@ class ZealCoordinator(DataUpdateCoordinator[dict[str, ZoneStatus]]):
             return None
         return self._room_temperature(room)
 
+    def room_target_temperature_range(self, room_id: str) -> tuple[float, float]:
+        """Return the safe target intersection advertised by physical thermostats."""
+        room = self._find_room(room_id)
+        minimum = MIN_TARGET_TEMPERATURE
+        maximum = MAX_TARGET_TEMPERATURE
+        if room is None:
+            return minimum, maximum
+        for entity_id in room.get(ROOM_TRVS, []) or []:
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                continue
+            try:
+                entity_min = float(state.attributes.get("min_temp", minimum))
+                entity_max = float(state.attributes.get("max_temp", maximum))
+            except (TypeError, ValueError):
+                continue
+            minimum = max(minimum, entity_min)
+            maximum = min(maximum, entity_max)
+        return minimum, maximum
+
     def zone_control_snapshot(self) -> dict[str, dict[str, Any]]:
         """Return live, non-secret zone-control timing for the panel."""
         snapshot: dict[str, dict[str, Any]] = {}
@@ -788,7 +818,8 @@ class ZealCoordinator(DataUpdateCoordinator[dict[str, ZoneStatus]]):
             status = data.get(zone_id)
             override = self.override_switches.get(zone_id)
             last_off = self._last_off_time.get(zone_id)
-            reenable_delay = int(
+            thermostat_controlled = zone_is_thermostat_controlled(zone)
+            reenable_delay = 0 if thermostat_controlled else int(
                 zone.get(ZONE_REENABLE_DELAY, DEFAULT_REENABLE_DELAY)
             )
             snapshot[zone_id] = {
@@ -801,7 +832,7 @@ class ZealCoordinator(DataUpdateCoordinator[dict[str, ZoneStatus]]):
                 "reenable_delay": reenable_delay,
                 "blocked_until": (
                     (last_off + timedelta(seconds=reenable_delay)).isoformat()
-                    if last_off
+                    if last_off and not thermostat_controlled
                     else None
                 ),
                 "demand_lines": list(status.demand_lines) if status else [],
@@ -835,7 +866,8 @@ class ZealCoordinator(DataUpdateCoordinator[dict[str, ZoneStatus]]):
         setpoint, since the thermostat is the room's single source of
         truth, not any individual TRV.
         """
-        temp = min(MAX_TARGET_TEMPERATURE, max(MIN_TARGET_TEMPERATURE, float(temp)))
+        minimum, maximum = self.room_target_temperature_range(room_id)
+        temp = min(maximum, max(minimum, float(temp)))
         if self._find_room(room_id) is None:
             _LOGGER.debug("Can't propagate setpoint - unknown room_id %s", room_id)
             return

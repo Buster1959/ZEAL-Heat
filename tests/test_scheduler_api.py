@@ -16,6 +16,7 @@ from custom_components.zeal.const import (
     CONF_STANDARD_USER_SCHEDULE,
     CONF_ZONES,
     DOMAIN,
+    HEAT_SOURCE_ELECTRIC_THERMOSTAT,
     ROOM_ACTIVE,
     ROOM_ID,
     ROOM_NAME,
@@ -181,6 +182,24 @@ def test_valid_hierarchy_is_normalized_from_home_assistant_registries(hass):
     assert normalized[0][ZONE_SWITCH] == switch.entity_id
 
 
+def test_thermostat_controlled_electric_zone_requires_no_switch(hass):
+    _, _, _, _, zone = create_registry_fixture(hass)
+    zone["heat_source"] = HEAT_SOURCE_ELECTRIC_THERMOSTAT
+    zone[ZONE_SWITCH] = None
+
+    normalized = validate_hierarchy(hass, [zone])
+
+    assert normalized[0][ZONE_SWITCH] is None
+    assert normalized[0]["reenable_delay"] == 0
+
+
+def test_thermostat_controlled_electric_zone_rejects_separate_switch(hass):
+    _, _, _, _, zone = create_registry_fixture(hass)
+    zone["heat_source"] = HEAT_SOURCE_ELECTRIC_THERMOSTAT
+    with pytest.raises(ValueError, match="switch must be empty"):
+        validate_hierarchy(hass, [zone])
+
+
 def test_occupancy_calendar_configuration_is_validated_and_normalized(hass):
     _, _, _, _, zone = create_registry_fixture(hass)
     calendar = er.async_get(hass).async_get_or_create(
@@ -340,6 +359,28 @@ async def test_schedule_save_updates_store_runtime_and_rejects_stale_revision(ha
             entry.entry_id,
             ScheduleConfiguration(settings={"stale": True}, temperature_unit="°C"),
             expected_revision=snapshot["revision"],
+        )
+
+
+async def test_schedule_save_rejects_target_below_physical_thermostat_limit(hass):
+    area, _, trv, _, zone = create_registry_fixture(hass)
+    entry = await setup_loaded_entry(hass, [zone])
+    hass.states.async_set(
+        trv.entity_id,
+        "heat",
+        {"temperature": 8.0, "min_temp": 4.0, "max_temp": 37.0},
+    )
+    configuration = ScheduleConfiguration(
+        rooms={area.id: monday_schedule(area.id, temperature=1.5)},
+        temperature_unit="°C",
+    )
+
+    with pytest.raises(ValueError, match="physical thermostat range 4.0–30.0"):
+        await async_save_schedule(
+            hass,
+            entry.entry_id,
+            configuration,
+            expected_revision=configuration_snapshot(hass, entry.entry_id)["revision"],
         )
 
 

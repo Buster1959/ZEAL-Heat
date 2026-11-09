@@ -119,10 +119,14 @@ def test_periods_must_be_ordered_and_have_unique_times_and_ids():
         room(room_days=days(monday=(period("same", "07:00"), period("same", "08:00"))))
 
 
-@pytest.mark.parametrize("temperature", [4.9, 30.1, 95])
+@pytest.mark.parametrize("temperature", [0.9, 30.1, 95])
 def test_schedule_temperature_must_be_within_zeal_safety_range(temperature):
-    with pytest.raises(ValueError, match="between 5.0 and 30.0"):
+    with pytest.raises(ValueError, match="between 1.0 and 30.0"):
         period(temperature=temperature)
+
+
+def test_schedule_accepts_low_frost_target_for_compatible_thermostats():
+    assert period(temperature=1.5).temperature == 1.5
 
 
 def test_active_period_selects_latest_change_on_same_day():
@@ -276,7 +280,7 @@ def test_temporary_override_cannot_exceed_zeal_safety_range():
         room_days=days(monday=(period("morning", "07:00", 30),))
     )
     configuration = ScheduleConfiguration(rooms={scheduled.room_id: scheduled})
-    with pytest.raises(ValueError, match="between 5.0 and 30.0"):
+    with pytest.raises(ValueError, match="between 1.0 and 30.0"):
         create_temporary_overrides(
             configuration,
             [scheduled.room_id],
@@ -339,7 +343,7 @@ def test_away_modes_are_mutually_exclusive_and_timezone_aware():
             },
             "timezone",
         ),
-        ({"mode": "off", "temperature": 31}, "between 5.0 and 30.0"),
+        ({"mode": "off", "temperature": 31}, "between 1.0 and 30.0"),
     ],
 )
 def test_away_configuration_rejects_ambiguous_or_unsafe_values(kwargs, match):

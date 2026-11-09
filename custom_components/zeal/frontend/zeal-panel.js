@@ -2,6 +2,7 @@ const HEAT_SOURCES = {
   ashp: "Air source heat pump (ASHP)",
   modulating_boiler: "Modulating / condensing boiler",
   non_condensing_boiler: "Older non-condensing boiler",
+  electric_thermostat: "Electric — thermostat controlled",
   other: "Other / not sure",
 };
 
@@ -9,6 +10,7 @@ const HEAT_SOURCE_DELAYS = {
   ashp: 300,
   modulating_boiler: 120,
   non_condensing_boiler: 60,
+  electric_thermostat: 0,
   other: 300,
 };
 
@@ -22,7 +24,7 @@ const WEEKDAYS = [
   "sunday",
 ];
 
-const MIN_SCHEDULE_TEMPERATURE = 5;
+const MIN_SCHEDULE_TEMPERATURE = 1;
 const MAX_SCHEDULE_TEMPERATURE = 30;
 const MAX_PERIODS_PER_DAY = 4;
 
@@ -262,6 +264,17 @@ class ZealPanel extends HTMLElement {
     );
   }
 
+  _roomTemperatureLimits(roomId) {
+    const thermostat = this._zealThermostat(roomId);
+    const state = thermostat ? this._hass?.states?.[thermostat.entity_id] : null;
+    const minimum = Number(state?.attributes?.min_temp);
+    const maximum = Number(state?.attributes?.max_temp);
+    return {
+      minimum: Number.isFinite(minimum) ? minimum : MIN_SCHEDULE_TEMPERATURE,
+      maximum: Number.isFinite(maximum) ? maximum : MAX_SCHEDULE_TEMPERATURE,
+    };
+  }
+
   _historyUrl(entityIds) {
     const available = [...new Set((entityIds || []).filter(
       (entityId) => entityId && this._hass?.states?.[entityId]
@@ -486,6 +499,7 @@ class ZealPanel extends HTMLElement {
   }
 
   _overviewZone(zone) {
+    const thermostatControlled = zone.heat_source === "electric_thermostat";
     const switchEntity = this._configuration.catalog.switches.find(
       (item) => item.entity_id === zone.switch
     );
@@ -497,10 +511,10 @@ class ZealPanel extends HTMLElement {
       }</span></div>
       ${this._overviewDemand(zone, switchEntity)}
       <dl class="zone-facts">
-        <div><dt>Heating actuator</dt><dd>${this._escape(
-          this._entityLabel(switchEntity)
+        <div><dt>Heating control</dt><dd>${this._escape(
+          thermostatControlled ? "Physical room thermostat" : this._entityLabel(switchEntity)
         )}</dd></div>
-        <div><dt>Re-enable delay</dt><dd>${Number(zone.reenable_delay ?? 300)} seconds</dd></div>
+        ${thermostatControlled ? "" : `<div><dt>Re-enable delay</dt><dd>${Number(zone.reenable_delay ?? 300)} seconds</dd></div>`}
       </dl>
       <div class="room-list">${
         (zone.rooms || []).length
@@ -521,7 +535,10 @@ class ZealPanel extends HTMLElement {
   _overviewDemandBody(zone, switchEntity) {
     const rooms = (zone.rooms || []).map((room) => this._roomDemandOverview(room, zone));
     const hasDemand = rooms.some((room) => room.cssClass === "demanding");
-    const actuator = this._actuatorOverviewState(zone.switch);
+    const thermostatControlled = zone.heat_source === "electric_thermostat";
+    const actuator = thermostatControlled
+      ? { label: "Thermostat controlled", cssClass: hasDemand ? "heating" : "idle" }
+      : this._actuatorOverviewState(zone.switch);
     const control = this._configuration?.zone_control?.[zone.zone_id];
     const zoneHistory = this._historyLink(
       [
@@ -534,14 +551,14 @@ class ZealPanel extends HTMLElement {
     );
     return `<div class="actuator-status ${actuator.cssClass}">
       <ha-icon icon="mdi:radiator"></ha-icon>
-      <div><span>Heating actuator</span><strong>${this._escape(actuator.label)}</strong></div>
+      <div><span>${thermostatControlled ? "Heating control" : "Heating actuator"}</span><strong>${this._escape(actuator.label)}</strong></div>
       <div class="zone-demand-state ${hasDemand ? "demanding" : "satisfied"}">
         <span>Heat demand</span><strong>${hasDemand ? "Present" : "None"}</strong>
       </div>
       ${zoneHistory}
     </div>
     ${
-      hasDemand && actuator.cssClass === "idle"
+      !thermostatControlled && hasDemand && actuator.cssClass === "idle"
         ? `<p class="actuator-explanation">${this._escape(
             this._actuatorHoldExplanation(control)
           )}</p>`
@@ -1347,6 +1364,7 @@ class ZealPanel extends HTMLElement {
 
   _renderScheduleDay(day) {
     const periods = this._scheduleDays?.[day] || [];
+    const limits = this._roomTemperatureLimits(this._scheduleRoomId);
     const rows = periods
       .map(
         (period, index) => `<div class="period-row ${
@@ -1361,7 +1379,7 @@ class ZealPanel extends HTMLElement {
           <input aria-label="${day} period time" type="time" data-schedule-day="${day}" data-schedule-index="${index}" data-schedule-field="time" value="${this._escape(
             period.time
           )}" />
-          <input aria-label="${day} period target" type="number" min="${MIN_SCHEDULE_TEMPERATURE}" max="${MAX_SCHEDULE_TEMPERATURE}" step="0.1" data-schedule-day="${day}" data-schedule-index="${index}" data-schedule-field="temperature" value="${this._escape(
+          <input aria-label="${day} period target" type="number" min="${limits.minimum}" max="${limits.maximum}" step="0.1" data-schedule-day="${day}" data-schedule-index="${index}" data-schedule-field="temperature" value="${this._escape(
             period.temperature
           )}" />
           <span>${this._scheduleTemperatureUnit()}</span>
@@ -2061,6 +2079,7 @@ class ZealPanel extends HTMLElement {
   }
 
   _setupZone(zone, zoneIndex, unassignedAreas) {
+    const thermostatControlled = zone.heat_source === "electric_thermostat";
     const selectedSwitches = new Set(
       this._draft
         .filter((_candidate, index) => index !== zoneIndex)
@@ -2076,7 +2095,7 @@ class ZealPanel extends HTMLElement {
         <label>Zone name<input data-zone="${zoneIndex}" data-zone-field="name" value="${this._escape(
           zone.name
         )}" placeholder="e.g. Ground Floor" /></label>
-        <label>Heating actuator switch<select data-zone="${zoneIndex}" data-zone-field="switch">
+        ${thermostatControlled ? `<label>Heating control<input value="Physical room thermostat (no separate actuator)" disabled /><small>The thermostat's internal relay controls the electric heating.</small></label>` : `<label>Heating actuator switch<select data-zone="${zoneIndex}" data-zone-field="switch">
           <option value="">Not selected</option>${switchOptions
             .map(
               (item) =>
@@ -2085,7 +2104,7 @@ class ZealPanel extends HTMLElement {
                 }>${this._escape(this._entityLabel(item))}</option>`
             )
             .join("")}
-        </select></label>
+        </select></label>`}
         <label>Heat source<select data-zone="${zoneIndex}" data-zone-field="heat_source">
           ${Object.entries(HEAT_SOURCES)
             .map(
@@ -2095,10 +2114,10 @@ class ZealPanel extends HTMLElement {
                 )}</option>`
             )
             .join("")}
-        </select><small>Suggested delay: ${HEAT_SOURCE_DELAYS[zone.heat_source] ?? 300} seconds.</small></label>
-        <label>Re-enable delay (seconds)<input type="number" min="0" max="3600" step="15" data-zone="${zoneIndex}" data-zone-field="reenable_delay" value="${Number(
+        </select><small>${thermostatControlled ? "The physical thermostat manages its own relay and cycling." : `Suggested delay: ${HEAT_SOURCE_DELAYS[zone.heat_source] ?? 300} seconds.`}</small></label>
+        ${thermostatControlled ? "" : `<label>Re-enable delay (seconds)<input type="number" min="0" max="3600" step="15" data-zone="${zoneIndex}" data-zone-field="reenable_delay" value="${Number(
           zone.reenable_delay ?? 300
-        )}" /><small>Minimum off time before this zone may turn on again.</small></label>
+        )}" /><small>Minimum off time before this zone may turn on again.</small></label>`}
       </div>
       <div class="rooms-heading"><div><h4>Rooms</h4><p>Each room is a Home Assistant Area.</p></div>
         <select class="add-room" data-action="add-room" data-zone="${zoneIndex}" ${
@@ -2480,6 +2499,18 @@ class ZealPanel extends HTMLElement {
         const zone = this._draft[Number(control.dataset.zone)];
         const field = control.dataset.zoneField;
         zone[field] = field === "reenable_delay" ? Number(control.value) : control.value || null;
+        if (field === "heat_source" && zone.heat_source === "electric_thermostat") {
+          zone.switch = null;
+          zone.reenable_delay = 0;
+          this._markChanged();
+          this._render();
+          return;
+        }
+        if (field === "heat_source") {
+          this._markChanged();
+          this._render();
+          return;
+        }
         this._markChanged();
       });
     });

@@ -121,7 +121,7 @@ An override replaces only the effective runtime target. The immutable
 expiring a hold immediately re-evaluates the active schedule through the same
 canonical room boundary. Relative changes require an active scheduled target;
 an exact target remains available for an otherwise empty schedule. Every result
-still passes ZEAL-Heat's 5–30°C safety range.
+still passes ZEAL-Heat's 1–30°C safety range and the room thermostat's limits.
 
 Each canonical application attempt is appended to a separate versioned audit
 Store with timestamp, stable room identity, canonical ZEAL-Heat thermostat,

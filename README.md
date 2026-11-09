@@ -12,7 +12,7 @@
 </p>
 
 > **ZEAL-Heat V1 release candidate — live regression testing is in progress.** The
-> current candidate is on `main` at manifest version `0.16.0`. It is feature
+> current candidate is on `main` at manifest version `0.16.1`. It is feature
 > complete for V1 but is not yet the production `1.0.0` release. Test with
 > dummy or spare equipment and complete the live acceptance record before
 > unattended use. The earlier rename is breaking for any old config entry:
@@ -51,12 +51,13 @@ guidance.
   "Ground Floor", "First Floor"), not tied to a single Home Assistant Area.
 - Assign **Rooms** to each zone — a Room is an HA Area (Kitchen, Lounge, Bedroom...).
   An Area can only belong to one zone at a time.
-- Pick each zone's **heating actuator switch** — one per zone (a shared single-pump
+- Pick each hydronic zone's **heating actuator switch** — one per zone (a shared single-pump
   house might have two zones sharing conceptually different floors, a dual-pump
   house one switch per zone, a hotel one switch per level — but a zone always has
-  exactly one switch).
+  exactly one switch). Electric heating with its own physical thermostat needs no
+  separate actuator switch.
 - Pick each zone's **heat source** (ASHP, modulating/condensing boiler,
-  non-condensing boiler, or other) — used to suggest a sensible starting
+  non-condensing boiler, thermostat-controlled electric, or other) — used to suggest a sensible starting
   **re-enable delay** for that zone (see
   [Heat sources and heating profiles](#heat-sources-and-heating-profiles)
   below), which you can then change to any value you want.
@@ -84,6 +85,8 @@ guidance.
   any active room is colder than its room Thermostat's target, and off when none
   are — with a **re-enable delay** (per zone, editable — suggested default depends
   on heat source) after switching off, so a zone can't rapidly cycle.
+  For thermostat-controlled electric zones it schedules the physical climate
+  entity directly and leaves relay cycling to that thermostat.
 - If **every TRV in a zone is closed** (valve shut), the pump is forced off
   immediately regardless of temperature demand — running against a fully closed
   loop with nowhere for water to go risks dead-heading the pump. Turning back on
@@ -99,9 +102,8 @@ guidance.
   responding, and a stalled reading is never trusted for a real decision) —
   this only adds visibility on top, it doesn't change how the room is
   controlled.
-- Every setpoint is clamped to a sane 5–30°C range before it can reach a real
-  TRV, logged loudly if it ever has to — a bug can't silently drive a room to
-  an extreme value.
+- Every setpoint is clamped to ZEAL-Heat's 1–30°C safety range and the physical
+  thermostat's advertised limits before it can reach the device.
 - Each zone gets a **Manual override switch** (created automatically) — turn it on
   to take that zone out of automatic control entirely.
 - Each zone gets a **Demand sensor** showing `Demand` / `No demand`, with which
@@ -339,7 +341,7 @@ Zone/Floor remains available after a slower integration reload.
 Open **ZEAL-Heat → Overrides → Quick Change** when you need a temporary target without changing
 the saved week. Select individual rooms, a complete Zone/Floor, any mixture of
 rooms or **Select whole house**. Then choose −1°C, +1°C or enter an exact target
-from 5–30°C and choose **2 hours**, **4 hours** or **Until next scheduled
+from 1–30°C (subject to each selected thermostat's limits) and choose **2 hours**, **4 hours** or **Until next scheduled
 change**.
 
 The room cards distinguish the scheduled target from an active temporary hold
@@ -367,7 +369,8 @@ physical TRV is stored as an offset from the underlying weekly target. The same
 offset follows later schedule changes, is replaced by a further guest change,
 survives a Home Assistant restart and clears when occupancy ends. ZEAL-Heat's
 write-echo, delayed-device and multi-TRV guards remain in force, and the final
-target is always clamped to 5–30°C.
+target is always clamped to ZEAL-Heat's 1–30°C range and the room thermostat's
+advertised limits.
 
 ### Away mode
 
@@ -463,6 +466,11 @@ switch fully on, satisfy the call for heat, and switch fully off. This is
 just how it's meant to work; there's little to protect by delaying a
 restart. **Suggested delay: 60 seconds.**
 
+**Electric — thermostat controlled.** The physical climate entity, such as a
+HELTUN electric underfloor thermostat, owns the heating relay, hysteresis and
+cycle protection. ZEAL-Heat schedules its target directly; no actuator switch
+or re-enable delay is configured.
+
 **Other / not sure.** Falls back to the original 300-second default.
 
 These are **starting points**, not settings baked into the heat-source
@@ -476,8 +484,9 @@ that instead.
 - Home Assistant with at least one **Area** defined (Settings → Areas & Zones) for
   each room you want to configure.
 - Celsius targets; the ZEAL-Heat V1 schedule editor and control model use °C.
-- A `switch` entity per zone to act as the heating actuator (e.g. a smart relay or
-  your ASHP's zone valve control) — exactly one per zone.
+- A `switch` entity per hydronic zone to act as the heating actuator (e.g. a smart
+  relay or your ASHP's zone valve control) — exactly one per zone. It is omitted
+  for **Electric — thermostat controlled** zones.
 - `climate` entities (TRVs) and `sensor` entities (temperature, `device_class:
   temperature`) assigned to the relevant Areas, so they can be auto-discovered.
 
@@ -540,10 +549,10 @@ entities in Developer Tools and download diagnostics before deciding whether
 the integration or device is at fault. The message also states whether another
 usable TRV or sensor still covers the room.
 
-**A room's setpoint got silently changed to 5°C or 30°C, with a WARNING in
+**A room's setpoint got clamped to its supported minimum or 30°C, with a WARNING in
 the log about a clamped out-of-range value.** As of version 0.11.0, ZEAL-Heat
-actively enforces a 5–30°C sane range on every setpoint before it can reach
-a real TRV — not just declared as UI metadata, genuinely blocked. If you see
+actively enforces a 1–30°C safety range plus each physical thermostat's
+advertised limits before a setpoint can reach it. If you see
 this warning, something upstream produced a value outside that range; it's
 worth investigating what did, since this should never happen in normal
 operation. The room itself is safe either way — it got clamped to a sane

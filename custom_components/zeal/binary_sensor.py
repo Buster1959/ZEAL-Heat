@@ -22,7 +22,7 @@ from .const import (
     ZONE_ID,
     ZONE_NAME,
     ZONE_ROOMS,
-    ZONE_SWITCH,
+    zone_is_actionable,
 )
 from .coordinator import RoomDemandStatus, ZealCoordinator
 
@@ -37,7 +37,7 @@ async def async_setup_entry(
     entities = [
         ZealRoomDemandBinarySensor(coordinator, entry, zone, room)
         for zone in coordinator.zones
-        if zone.get(ZONE_SWITCH)
+        if zone_is_actionable(zone)
         for room in zone.get(ZONE_ROOMS, [])
         if room.get(ROOM_TRVS) and room.get(ROOM_SENSORS)
     ]

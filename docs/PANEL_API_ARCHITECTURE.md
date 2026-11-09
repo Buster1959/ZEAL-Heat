@@ -47,7 +47,7 @@ saved scheduled target, effective target, expiry and active override. Holds are
 runtime-only and never share a write path with the schedule document.
 
 Overrides' Away card selects one of Off, a registry-backed Home Assistant calendar
-or one start/end period and a 5–30°C global target. The backend validates the
+or one start/end period and a 1–30°C global target. The backend validates the
 calendar owner/domain and disabled state, interprets offset-free browser values
 in Home Assistant's configured time zone, enforces five-minute manual intervals,
 and returns live activation status in configuration and Quick Change responses.
@@ -72,7 +72,7 @@ The hierarchy writer treats browser data as untrusted. It validates:
 - that disabled or ZEAL-Heat-owned entities cannot be selected as physical devices;
 - heat-source values, boolean room state and the 0–3600 second re-enable range;
 - schedules, times and temperatures through the versioned model, including the
-  5–30°C ZEAL-Heat safety range.
+  1–30°C ZEAL-Heat safety range and physical thermostat limits.
 
 ## Conflict protection
 

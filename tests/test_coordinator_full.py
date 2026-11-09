@@ -36,6 +36,7 @@ from custom_components.zeal.const import (
     ZONE_NAME,
     ZONE_ROOMS,
     ZONE_SWITCH,
+    HEAT_SOURCE_ELECTRIC_THERMOSTAT,
 )
 from custom_components.zeal import coordinator as coordinator_module
 from custom_components.zeal.coordinator import ZealCoordinator, ZoneStatus
@@ -175,6 +176,45 @@ async def test_room_temperature_ignores_unavailable_sensor(hass, coordinator):
     set_sensor(hass, "sensor.r_1", 20.0)
     hass.states.async_set("sensor.r_2", "unavailable")
     assert coordinator._room_temperature(room) == 20.0
+
+
+def test_room_target_range_uses_physical_thermostat_capabilities(
+    hass, coordinator, floor1_zone
+):
+    room = floor1_zone[ZONE_ROOMS][0]
+    hass.states.async_set(
+        room[ROOM_TRVS][0],
+        "heat",
+        {"temperature": 8.0, "min_temp": 1.0, "max_temp": 37.0},
+    )
+    assert coordinator.room_target_temperature_range(room[ROOM_ID]) == (1.0, 30.0)
+
+
+async def test_thermostat_controlled_electric_zone_evaluates_without_switch(hass):
+    room = make_room(
+        "underfloor",
+        "Underfloor",
+        ["climate.underfloor"],
+        ["sensor.underfloor_temperature"],
+    )
+    zone = make_zone("electric", "Electric", None, [room])
+    zone["heat_source"] = HEAT_SOURCE_ELECTRIC_THERMOSTAT
+    zone["reenable_delay"] = 0
+    entry = MockConfigEntry(domain=DOMAIN, data={}, options={CONF_ZONES: [zone]})
+    entry.add_to_hass(hass)
+    coord = ZealCoordinator(hass, entry, Store(hass, 1, f"{DOMAIN}_{entry.entry_id}"))
+    coord.room_thermostats[room[ROOM_ID]] = FakeThermostat(8.0)
+    hass.states.async_set(
+        "climate.underfloor",
+        "heat",
+        {"temperature": 8.0, "min_temp": 1.0, "max_temp": 37.0},
+    )
+    set_sensor(hass, "sensor.underfloor_temperature", 6.0)
+
+    result = await coord._async_update_data()
+
+    assert result[zone[ZONE_ID]].needs_heat is True
+    assert result[zone[ZONE_ID]].switches_ok is True
 
 
 async def test_room_temperature_all_unavailable_returns_none(hass, coordinator):
@@ -867,8 +907,8 @@ async def test_unavailable_trv_write_is_retried_after_recovery(hass, coordinator
     "bad_value,expected_clamp",
     [
         (95.0, 30.0),   # absurdly hot -> clamped to max
-        (-5.0, 5.0),    # absurdly cold -> clamped to min
-        (0.0, 5.0),     # zero -> clamped to min
+        (-5.0, 1.0),    # absurdly cold -> clamped to generic min
+        (0.0, 1.0),     # zero -> clamped to generic min
     ],
 )
 async def test_propagate_clamps_out_of_range_setpoint(hass, coordinator, floor1_zone, bad_value, expected_clamp):

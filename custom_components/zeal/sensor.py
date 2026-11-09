@@ -14,7 +14,14 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DEVICE_MANUFACTURER, DEVICE_MODEL, DOMAIN, ZONE_ID, ZONE_NAME, ZONE_SWITCH
+from .const import (
+    DEVICE_MANUFACTURER,
+    DEVICE_MODEL,
+    DOMAIN,
+    ZONE_ID,
+    ZONE_NAME,
+    zone_is_actionable,
+)
 from .coordinator import ZealCoordinator, ZoneStatus
 
 
@@ -29,7 +36,7 @@ async def async_setup_entry(
     entities = [
         ZealDemandSensor(coordinator, entry, zone)
         for zone in coordinator.zones
-        if zone.get(ZONE_SWITCH)
+        if zone_is_actionable(zone)
     ]
     async_add_entities(entities)
 

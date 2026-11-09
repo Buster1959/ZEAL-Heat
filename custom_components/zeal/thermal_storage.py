@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from inspect import signature
 from typing import TYPE_CHECKING, Any
 
 from .const import (
@@ -95,12 +96,10 @@ class ThermalStorage:
             def store_factory(
                 version: int, key: str, serialize_in_event_loop: bool
             ) -> Any:
-                return Store[dict[str, object]](
-                    hass,
-                    version,
-                    key,
-                    serialize_in_event_loop=serialize_in_event_loop,
-                )
+                kwargs = {}
+                if "serialize_in_event_loop" in signature(Store).parameters:
+                    kwargs["serialize_in_event_loop"] = serialize_in_event_loop
+                return Store[dict[str, object]](hass, version, key, **kwargs)
 
         self._entry_id = entry_id
         self._store_factory = store_factory

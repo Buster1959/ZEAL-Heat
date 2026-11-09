@@ -195,6 +195,9 @@ def test_frontend_contains_live_overview_demand_contracts():
     """Overview shows live actuator and room demand without duplicating control state."""
     source = PANEL_FILE.read_text()
     assert "Heating actuator" in source
+    assert 'electric_thermostat: "Electric — thermostat controlled"' in source
+    assert "Physical room thermostat (no separate actuator)" in source
+    assert 'thermostatControlled ? "Heating control"' in source
     assert 'icon="mdi:radiator"' in source
     assert 'label: "On", cssClass: "heating"' in source
     assert 'label: "Off", cssClass: "idle"' in source

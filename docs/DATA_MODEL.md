@@ -70,7 +70,7 @@ The version-1 scheduler store contains:
 
 Every room contains exactly Monday through Sunday. Each day is an ordered list
 of periods with a stable ID, display names, exact 24-hour `HH:MM` time and a
-finite 5–30°C target. A room can have at most four periods per day through the
+finite 1–30°C target, further restricted by its physical thermostat range. A room can have at most four periods per day through the
 V1 editor.
 
 A period remains effective until a later period takes over, including across

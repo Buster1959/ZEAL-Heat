@@ -10,7 +10,7 @@ DEVICE_MODEL = "Zoned heating controller"
 PANEL_COMPONENT = "zeal-panel"
 PANEL_URL_PATH = DOMAIN
 PANEL_STATIC_URL = f"/{DOMAIN}_static"
-PANEL_ASSET_VERSION = "30"
+PANEL_ASSET_VERSION = "31"
 
 STORAGE_VERSION = 1
 STORAGE_KEY_FMT = f"{DOMAIN}_{{entry_id}}"
@@ -60,11 +60,12 @@ CONF_LEARNING_PERSISTENT_NOTIFICATIONS = "learning_persistent_notifications"
 ZONE_ID = "zone_id"
 ZONE_NAME = "name"
 ZONE_ROOMS = "rooms"
-# A zone has exactly ONE heating actuator switch (pump/relay) - never more.
+# A hydronic zone has exactly ONE heating actuator switch (pump/relay) - never more.
 # Real installs confirm this: a shared single-pump house split into
 # ground-floor/first-floor zones, a dual-pump house with one switch per
 # zone, a hotel with one switch per level. Holds an entity_id, or None if
-# not yet configured for this zone.
+# not yet configured for this zone. Thermostat-controlled electric zones do
+# not use a separate switch: their physical climate entity owns the relay.
 ZONE_SWITCH = "switch"
 # Heat source powering this zone. Affects the heating profile (how the
 # source ramps output and whether cycling on/off is harmful or normal) and
@@ -82,11 +83,13 @@ ZONE_REENABLE_DELAY = "reenable_delay"
 HEAT_SOURCE_ASHP = "ashp"
 HEAT_SOURCE_MODULATING_BOILER = "modulating_boiler"
 HEAT_SOURCE_NON_CONDENSING_BOILER = "non_condensing_boiler"
+HEAT_SOURCE_ELECTRIC_THERMOSTAT = "electric_thermostat"
 HEAT_SOURCE_OTHER = "other"
 HEAT_SOURCE_OPTIONS = [
     HEAT_SOURCE_ASHP,
     HEAT_SOURCE_MODULATING_BOILER,
     HEAT_SOURCE_NON_CONDENSING_BOILER,
+    HEAT_SOURCE_ELECTRIC_THERMOSTAT,
     HEAT_SOURCE_OTHER,
 ]
 
@@ -141,7 +144,7 @@ OCCUPANCY_SOURCE_CALENDAR = "calendar"
 # per-zone, user-editable value actually used by the Coordinator.
 DEFAULT_SCAN_INTERVAL = 60  # seconds - periodic fallback poll
 DEFAULT_REENABLE_DELAY = 300  # seconds - min time OFF before allowed back ON
-MIN_TARGET_TEMPERATURE = 5.0
+MIN_TARGET_TEMPERATURE = 1.0
 MAX_TARGET_TEMPERATURE = 30.0
 OFFLINE_DEBOUNCE_SECONDS = 300
 STALE_THRESHOLD_SECONDS = 4 * 60 * 60
@@ -168,6 +171,8 @@ EXTERNAL_SETPOINT_SETTLE_SECONDS = 5
 #     on/off, so a moderate delay.
 #   * Non-condensing boiler: fixed high flow temp, designed to cycle on
 #     and off to satisfy demand - minimal harm from re-enabling quickly.
+#   * Thermostat-controlled electric: the physical thermostat owns its relay,
+#     hysteresis and cycle protection, so ZEAL has no actuator delay to apply.
 #   * Other/unknown: fall back to the original global default.
 # See README "Heat sources and heating profiles" for the full explanation
 # this table is based on.
@@ -175,8 +180,19 @@ HEAT_SOURCE_DEFAULT_REENABLE_DELAY = {
     HEAT_SOURCE_ASHP: 300,
     HEAT_SOURCE_MODULATING_BOILER: 120,
     HEAT_SOURCE_NON_CONDENSING_BOILER: 60,
+    HEAT_SOURCE_ELECTRIC_THERMOSTAT: 0,
     HEAT_SOURCE_OTHER: DEFAULT_REENABLE_DELAY,
 }
+
+
+def zone_is_thermostat_controlled(zone: dict) -> bool:
+    """Return whether room climate entities directly control this zone's heat."""
+    return zone.get(ZONE_HEAT_SOURCE) == HEAT_SOURCE_ELECTRIC_THERMOSTAT
+
+
+def zone_is_actionable(zone: dict) -> bool:
+    """Return whether ZEAL can evaluate and control targets for this zone."""
+    return bool(zone.get(ZONE_SWITCH)) or zone_is_thermostat_controlled(zone)
 
 # Keys inside the runtime Store payload (separate from CONF_ZONES, which is
 # just the mirrored config). Store shape:

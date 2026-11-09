@@ -51,8 +51,10 @@ room thermostats, sensors and actuators; it is not listed under Helpers.
 
 ## Set up zones and rooms
 
-Open **ZEAL-Heat → Setup**. Add a Zone/Floor, select its single heating actuator and
-heat source, then review the suggested re-enable delay. Add one or more Home
+Open **ZEAL-Heat → Setup**. Add a Zone/Floor and choose its heat source. For a
+hydronic source, select its single heating actuator and review the suggested
+re-enable delay. For **Electric — thermostat controlled**, no actuator is needed;
+the physical room thermostat controls its own relay. Add one or more Home
 Assistant Areas as rooms and choose the non-ZEAL-Heat physical thermostats/TRVs and
 temperature sensors in each Area. Optionally attach one or more window/door
 contact sensors. Mark unused rooms inactive and save.

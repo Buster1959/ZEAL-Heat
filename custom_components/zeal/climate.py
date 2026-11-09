@@ -54,7 +54,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # Sensible generic bounds - not read from any per-install config yet.
 DEFAULT_TARGET_TEMP = 20.0
-MIN_TEMP = 5.0
+MIN_TEMP = 1.0
 MAX_TEMP = 30.0
 
 
@@ -128,6 +128,9 @@ class ZealRoomThermostat(CoordinatorEntity[ZealCoordinator], RestoreEntity, Clim
 
         self._attr_target_temperature = DEFAULT_TARGET_TEMP
         self._attr_hvac_mode = HVACMode.HEAT
+        self._attr_min_temp, self._attr_max_temp = (
+            coordinator.room_target_temperature_range(self._room_id)
+        )
 
         # Same zone-level device grouping as ZealOverrideSwitch/
         # ZealDemandSensor - this room's thermostat shows up alongside

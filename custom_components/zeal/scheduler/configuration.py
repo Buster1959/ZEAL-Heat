@@ -23,6 +23,7 @@ from ..const import (
     DEFAULT_REENABLE_DELAY,
     DOMAIN,
     HEAT_SOURCE_ASHP,
+    HEAT_SOURCE_ELECTRIC_THERMOSTAT,
     HEAT_SOURCE_DEFAULT_REENABLE_DELAY,
     HEAT_SOURCE_OPTIONS,
     ROOM_ACTIVE,
@@ -391,6 +392,10 @@ def validate_hierarchy(
         heat_source = raw_zone.get(ZONE_HEAT_SOURCE, HEAT_SOURCE_ASHP)
         if heat_source not in HEAT_SOURCE_OPTIONS:
             raise ValueError(f"zones[{zone_index}].heat_source is invalid")
+        if heat_source == HEAT_SOURCE_ELECTRIC_THERMOSTAT and switch is not None:
+            raise ValueError(
+                f"zones[{zone_index}].switch must be empty for thermostat-controlled electric heat"
+            )
         delay = raw_zone.get(
             ZONE_REENABLE_DELAY,
             HEAT_SOURCE_DEFAULT_REENABLE_DELAY.get(
@@ -407,6 +412,8 @@ def validate_hierarchy(
             )
         if not 0 <= float(delay) <= 3600:
             raise ValueError(f"zones[{zone_index}].reenable_delay must be 0 to 3600")
+        if heat_source == HEAT_SOURCE_ELECTRIC_THERMOSTAT:
+            delay = 0
         raw_rooms = raw_zone.get(ZONE_ROOMS, [])
         if not isinstance(raw_rooms, list):
             raise ValueError(f"zones[{zone_index}].rooms must be a list")
@@ -563,6 +570,16 @@ async def async_save_schedule(
     if current_revision(hass, entry_id) != expected_revision:
         raise ConfigurationConflictError("Configuration changed; reload and try again")
     data = _entry_data(hass, entry_id)
+    coordinator = data["coordinator"]
+    for room in configuration.rooms.values():
+        minimum, maximum = coordinator.room_target_temperature_range(room.room_id)
+        for periods in room.days.values():
+            for period in periods:
+                if not minimum <= period.temperature <= maximum:
+                    raise ValueError(
+                        f"{room.room_name} target {period.temperature}°C is outside "
+                        f"its physical thermostat range {minimum}–{maximum}°C"
+                    )
     await data["schedule_storage"].async_save(configuration)
     await data["schedule_runtime"].async_set_configuration(configuration)
     return current_revision(hass, entry_id)

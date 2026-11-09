@@ -74,8 +74,9 @@ underlying weekly target, not a previously offset target, and is carried across
 schedule boundaries until occupancy ends.
 
 The per-zone Manual override is separate and remains the highest authority over
-the physical actuator. Every target passes through ZEAL-Heat's 5–30°C clamp before
-it can reach a physical thermostat. Unavailable or stale readings are excluded
+the physical actuator. Every target passes through ZEAL-Heat's 1–30°C safety
+range and the selected room's physical-thermostat limits before it can reach a
+device. Unavailable or stale readings are excluded
 from decisions, and an all-valves-closed result forces the zone actuator off.
 
 ## Further technical detail

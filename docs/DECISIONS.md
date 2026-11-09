@@ -7,13 +7,15 @@ companion Wiki retains the longer chronological design history.
    runtime dependency in either direction.
 2. Do not let ZEAL-Heat and another thermostat setpoint scheduler control the same
    thermostat entities.
-3. A ZEAL-Heat zone owns exactly one heating actuator and may contain several Home
-   Assistant Areas as rooms.
+3. A hydronic ZEAL-Heat zone owns exactly one heating actuator; a
+   thermostat-controlled electric zone owns none. Either may contain several
+   Home Assistant Areas as rooms.
 4. Every room schedule targets one ZEAL-Heat-owned canonical thermostat; physical
    room TRVs are downstream equipment, never independent schedule targets.
 5. A room uses the average of its usable temperature sensors and the highest
    usable physical-TRV target when the canonical target is unavailable.
-6. All physical setpoint writes are clamped to 5–30°C.
+6. All physical setpoint writes are clamped to ZEAL-Heat's 1–30°C safety range
+   and the selected physical thermostats' advertised limits.
 7. Each heat source suggests a starting re-enable delay, but the saved delay is
    user-editable.
 8. Weekly schedules are seven independent daily timelines with cross-midnight
@@ -35,7 +37,7 @@ companion Wiki retains the longer chronological design history.
 **Occupancy comfort offsets.** A guest thermostat/TRV change in an occupied
 room is measured against the underlying scheduled target, persists across later
 schedule transitions and restarts, updates on a further adjustment and clears
-when occupancy ends. Existing write-echo, delayed-device, multi-TRV and 5–30°C
+when occupancy ends. Existing write-echo, delayed-device, multi-TRV and target
 safety guards apply.
 
 ## Next-major-version design constraints
